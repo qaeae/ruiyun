@@ -99,16 +99,68 @@ public final class PermissionCodes {
     /** 上传发货单影像（回单/异常照片）：涉及结算举证材料，需授权。 */
     public static final String LOGISTICS_PROOF_UPLOAD = "logistics:proof:upload";
 
+    // ==========================================================================================
+    // 出库域（W6 / 03 API-OUT）。按"作业动作"分权，不按"角色"分权——
+    // 角色（库管/分拣/装卸工/安全员）是**现场编制**，会随班次与仓库调整；
+    // 而"谁能派发、谁能装车"是职责边界，用权限码表达才能把不相容职责真正分开
+    // （例如"分拣"不应能直接装车出账，否则可绕过复核与交接两道卡点）。
+    // ==========================================================================================
+
+    /** 出库-建单（商家/系统）。 */
+    public static final String OUTBOUND_ORDER_CREATE = "outbound:order:create";
+
+    /** 出库-查询与轨迹（全角色按权限）。 */
+    public static final String OUTBOUND_ORDER_QUERY = "outbound:order:query";
+
+    /** 出库-派发拣货（库管）。 */
+    public static final String OUTBOUND_ORDER_DISPATCH = "outbound:order:dispatch";
+
+    /** 出库-拣货完成/缺货上报（分拣）。 */
+    public static final String OUTBOUND_ORDER_PICK = "outbound:order:pick";
+
+    /** 出库-称重量方（分拣）。 */
+    public static final String OUTBOUND_ORDER_MEASURE = "outbound:order:measure";
+
+    /** 出库-打包与面单绑定（分拣）。 */
+    public static final String OUTBOUND_ORDER_PACK = "outbound:order:pack";
+
+    /** 出库-扫码交接装卸工（分拣）。 */
+    public static final String OUTBOUND_ORDER_HANDOVER = "outbound:order:handover";
+
+    /** 出库-装车确认（装卸工；**库存出账**，与分拣职责分离）。 */
+    public static final String OUTBOUND_ORDER_LOAD = "outbound:order:load";
+
+    /** 出库-取消（商家/库管；按阶段回滚库存与资金）。 */
+    public static final String OUTBOUND_ORDER_CANCEL = "outbound:order:cancel";
+
+    /** 出库-异常拦截（安全员/库管）。 */
+    public static final String OUTBOUND_ORDER_HOLD = "outbound:order:hold";
+
+    /** 出库-部分发货（库管；余量生成新单）。 */
+    public static final String OUTBOUND_ORDER_PARTIAL = "outbound:order:partial";
+
     /** 查询/下载发货单影像。 */
     public static final String LOGISTICS_PROOF_QUERY = "logistics:proof:query";
 
-    /** 全部已登记权限码。 */
+    /**
+     * 全部已登记权限码。
+     *
+     * <p><b>新增权限码必须同时登记到这里</b>，否则 {@link #of(String)} 会拒绝授予它——
+     * 症状是"给角色配了权限但接口一直 403"（配置界面还显示成功）。这是本类存在的意义，
+     * 也是最容易漏的一步：加了常量却忘了登记，编译与单测都不会报错。
+     *
+     * <p>2026-10-16 补齐了{@code PRICING_ESTIMATE}、{@code LOGISTICS_PROOF_*} 三项——
+     * 它们此前只声明了常量、没进本清单，因此那两个接口的权限**实际上永远授不出去**（只声明未登记）。
+     */
     private static final List<String> ALL = List.of(MASTER_MERCHANT_CREATE, MASTER_WAREHOUSE_CREATE,
             MASTER_SKU_CREATE, MASTER_SKU_UNIT_CONV, MASTER_STATUS_CHANGE, MASTER_QUERY, DEVICE_MANAGE, STOCK_QUERY,
             STOCK_RESERVE, STOCK_ADJUST, FINANCE_RECONCILE_MANAGE, FINANCE_SETTLE_MANAGE,
             FINANCE_SETTLE_DISPATCH, FINANCE_QUERY, APPROVAL_APPLY, APPROVAL_REVIEW, OPS_JOB_QUERY, OPS_JOB_RUN,
             STOCK_MOVE, STOCK_INVARIANT_CHECK, AUTH_ROLE_MANAGE, AUTH_WAREHOUSE_GRANT, AUTH_USER_MANAGE,
-            AUTH_AUDIT_QUERY);
+            AUTH_AUDIT_QUERY, PRICING_ESTIMATE, LOGISTICS_PROOF_UPLOAD, LOGISTICS_PROOF_QUERY,
+            OUTBOUND_ORDER_CREATE, OUTBOUND_ORDER_QUERY, OUTBOUND_ORDER_DISPATCH, OUTBOUND_ORDER_PICK,
+            OUTBOUND_ORDER_MEASURE, OUTBOUND_ORDER_PACK, OUTBOUND_ORDER_HANDOVER, OUTBOUND_ORDER_LOAD,
+            OUTBOUND_ORDER_CANCEL, OUTBOUND_ORDER_HOLD, OUTBOUND_ORDER_PARTIAL);
 
     private PermissionCodes() {
     }

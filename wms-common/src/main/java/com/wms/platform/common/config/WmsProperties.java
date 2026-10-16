@@ -42,6 +42,37 @@ public class WmsProperties {
     /** 设备接入配置（08-设备网关与本地设备接入）。 */
     private final Device device = new Device();
 
+    /** 出库配置（W6 / 02 M7、03 API-OUT）。 */
+    private final Outbound outbound = new Outbound();
+
+    /**
+     * 出库参数（{@code 02} M7-03/M7-06、{@code 04} §4.3）。
+     *
+     * <p>三项都是"现场口径、随仓可调"的东西，因此做成配置而不是写死常量：
+     * 截单时间各仓不同、缓冲系数按承运商谈、是否需要先交接再装车取决于作业分区。
+     */
+    @Getter
+    @Setter
+    public static class Outbound {
+
+        /**
+         * 截单时刻（东八区本地时刻，格式 {@code HH:mm}）：该时刻（含）之前建的单是当日单。
+         *
+         * <p>默认 18:00（设计文档未给具体值，先按常见单仓作业时段取值并登记为待确认项）。
+         */
+        private String cutoffTime = "18:00";
+
+        /**
+         * 运费冻结缓冲系数（{@code 04} §4.3：冻结额 = 预估价 × (1 + 缓冲)，默认 10%，
+         * 可按承运商配置）。冻结宁可略多不可略少——少了会在对账时出现"实费 > 冻结额"，
+         * 那时钱已经花出去，只能走垫付。
+         */
+        private java.math.BigDecimal freezeBufferRate = new java.math.BigDecimal("0.1000");
+
+        /** 装车前是否强制"分拣→装卸扫码交接"（{@code 01} §2.1 第 9 行前置：未交接不可装车，20005）。 */
+        private boolean requireHandoverBeforeLoad = true;
+    }
+
     /** 设备接入参数。 */
     @Getter
     @Setter

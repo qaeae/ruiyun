@@ -111,6 +111,17 @@ mybatis-plus:
       logic-delete-value: 1
 
 wms:
+  # ==========================================================================
+  # 出库（W6 / 02 M7、03 API-OUT）
+  # ==========================================================================
+  outbound:
+    # 截单时刻（东八区，HH:mm）：该时刻（含）之前建的单是当日单，之后是次日单（02 M7-06）。
+    # 只影响分批，不影响能否下单——18:01 的单照收，只是排到次日批次。
+    cutoff-time: ${OUTBOUND_CUTOFF_TIME:18:00}
+    # 运费冻结缓冲系数（04 §4.3）：冻结额 = 预估价 × (1 + 缓冲)。冻结宁可略多不可略少。
+    freeze-buffer-rate: ${OUTBOUND_FREEZE_BUFFER_RATE:0.1000}
+    # 装车前是否强制分拣→装卸扫码交接（01 §2.1 第 9 行前置；关闭只用于演练/排障）
+    require-handover-before-load: ${OUTBOUND_REQUIRE_HANDOVER:true}
   # 消息与发件箱（P2）：默认 NONE = 审批通过同事务直接执行（不依赖 broker）；
   # RABBIT = 写事务性发件箱 → 投 RabbitMQ → 消费方执行（最终一致）
   messaging:
