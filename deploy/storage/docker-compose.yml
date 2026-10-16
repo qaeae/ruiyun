@@ -1,0 +1,41 @@
+# ==========================================================================================
+# 对象存储（P5）：MinIO —— 面单/回单影像
+#
+# 用法（在 wms-platform 目录下）：
+#   docker compose -f deploy/storage/docker-compose.yml up -d
+#   # 控制台 http://localhost:9001  （账号 wms / 密码 wms123456）
+#   # S3 端点 http://localhost:9000
+#
+# 服务端接入（改环境变量即可，无需改代码）：
+#   STORAGE_MODE=MINIO
+#   MINIO_ENDPOINT=http://127.0.0.1:9000
+#   MINIO_ACCESS_KEY=wms
+#   MINIO_SECRET_KEY=wms123456
+#   MINIO_BUCKET=wms-proofs        # 桶不存在时应用启动会自动创建
+#
+# 注意：**桶默认私有**，应用只通过预签名 URL（短有效期）或应用内下载接口访问，
+#       不要为省事把桶设成匿名可读——回单影像常含收件人信息。
+# ==========================================================================================
+services:
+  minio:
+    image: quay.io/minio/minio:RELEASE.2024-06-13T22-53-53Z
+    container_name: wms-minio
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # 控制台
+    environment:
+      MINIO_ROOT_USER: wms
+      MINIO_ROOT_PASSWORD: wms123456
+      TZ: Asia/Shanghai
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  minio-data:

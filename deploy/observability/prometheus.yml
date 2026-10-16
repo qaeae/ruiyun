@@ -1,0 +1,26 @@
+# ==========================================================================================
+# Prometheus 抓取配置（P4 可观测性）
+#
+# 抓的是各服务的 Spring Boot Actuator 指标端点（/actuator/prometheus）。
+# 指标统一带 application 标签（见各服务 application.yml 的 management.metrics.tags），
+# 因此多服务共用一个 Prometheus 时可以按 application / service 维度聚合。
+#
+# 本地（Docker Desktop）用 host.docker.internal 访问宿主机上的服务；
+# 生产改为服务名或 Pod IP（K8s 里用 ServiceMonitor / 注解自动发现）。
+# ==========================================================================================
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  - job_name: wms-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+        labels: { service: wms-core }
+      - targets: ['host.docker.internal:8081']
+        labels: { service: wms-auth }
+      - targets: ['host.docker.internal:8082']
+        labels: { service: wms-masterdata }
+      - targets: ['host.docker.internal:8088']
+        labels: { service: wms-gateway }

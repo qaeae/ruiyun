@@ -1,0 +1,20 @@
+# 本地开发覆盖：只放"开发期便利"配置，不放任何生产语义
+spring:
+  flyway:
+    # 本地允许手工修库后再迁移（生产必须保持 true）
+    validate-on-migrate: false
+
+mybatis-plus:
+  configuration:
+    # 本地打印 SQL，便于核对三态更新与幂等键
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+logging:
+  level:
+    com.wms.platform: debug
+
+wms:
+  payment:
+    channel:
+      # 本地/联调使用账务模拟通道（04 §九）
+      mode: MOCK

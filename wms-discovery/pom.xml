@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  wms-discovery：把我们的 Nacos 注册中心桥接给 Spring Cloud LoadBalancer。
+
+  为什么需要它（不是重复造轮子）：
+  - 网关要用 `lb://wms-auth` 这种写法做**按服务名转发 + 负载均衡**；
+  - `lb://` 需要 Spring Cloud 的 ReactiveDiscoveryClient；
+  - 而现成的 spring-cloud-starter-alibaba-nacos-discovery 最新只支持 Boot 3.2/3.3（本项目 3.5.15，见 README §40.1），
+    强行混用属于不受支持的组合。
+  所以这里用**已在用的 nacos-client** 实现 ReactiveDiscoveryClient/DiscoveryClient（两个接口一起实现：
+  响应式给网关用，命令式给未来的 Feign/RestClient 用），依赖面极小。
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.wms.platform</groupId>
+        <artifactId>wms-platform</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>wms-discovery</artifactId>
+    <name>wms-discovery</name>
+    <description>Nacos 服务发现适配：为 Spring Cloud LoadBalancer 提供 ReactiveDiscoveryClient/DiscoveryClient</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-kernel</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <!-- 只为 ReactiveDiscoveryClient/DiscoveryClient/ServiceInstance 这些接口 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-commons</artifactId>
+        </dependency>
+        <!--
+            实现 ReactiveDiscoveryClient 必须返回 Flux/Mono，因此需要 reactor。
+            注意：这**不会**把应用变成响应式——只是让本适配类能编译并被网关使用；
+            Servlet 应用依赖本模块时它只是一个普通依赖。
+        -->
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>

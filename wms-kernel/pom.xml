@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  wms-kernel：**无 Servlet 依赖**的共享内核。
+
+  为什么要有这个模块（P1 的真实约束）：
+  Spring Cloud Gateway 是 WebFlux（响应式）应用，classpath 上出现 spring-web/servlet 会直接启动失败
+  （"Spring MVC found on classpath, which is incompatible with Spring Cloud Gateway"）。
+  而网关又必须验证令牌、复用错误码与响应结构、接入 Nacos——这些东西原在 wms-common（带 starter-web）。
+  所以把"两边都要、且与 Web 无关"的部分抽到本模块：错误码/异常/统一响应/常量/Nacos 接入/令牌编解码。
+
+  依赖纪律：本模块**禁止**引入 spring-boot-starter-web（或任何 servlet API）。
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.wms.platform</groupId>
+        <artifactId>wms-platform</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>wms-kernel</artifactId>
+    <name>wms-kernel</name>
+    <description>无 Servlet 依赖的共享内核：错误码/统一响应/常量/Nacos 接入/令牌编解码（Servlet 服务与 WebFlux 网关共用）</description>
+
+    <dependencies>
+        <!-- spring-boot-starter 而非 starter-web：需要 @ConfigurationProperties/EnvironmentPostProcessor/ApplicationRunner，但不要 Servlet -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <!--
+            spring-web：只为 org.springframework.http.HttpStatus（BizException 用它表达 409 等语义）。
+            注意它**不是** spring-boot-starter-web——后者才会引入 Servlet/Tomcat，那是网关（WebFlux）不能碰的。
+            WebFlux 本身也依赖 spring-web，因此这个依赖对两边都安全。
+        -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+        </dependency>
+        <!-- Nacos 注册与配置中心（版本由父 pom dependencyManagement 统一） -->
+        <dependency>
+            <groupId>com.alibaba.nacos</groupId>
+            <artifactId>nacos-client</artifactId>
+        </dependency>
+        <!-- 令牌载荷是 JSON（编解码用） -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>

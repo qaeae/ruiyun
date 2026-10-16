@@ -1,0 +1,231 @@
+# ==========================================================================
+# 智能化仓库平台 · 主配置
+# 约定：敏感值一律走环境变量（${VAR}），配置文件只放非敏感默认值与结构说明
+# ==========================================================================
+spring:
+  # 代理方式（P5.3 踩坑）：@ReadOnly 只标在实现类上时，JDK 动态代理（默认）
+  # 暴露的是接口方法，@annotation 切点匹配不到 → 路由不生效。
+  # 改用 CGLIB（proxy-target-class=true）后，切点按目标类方法匹配，注解稳定生效。
+  aop:
+    proxy-target-class: true
+  application:
+    name: wms-platform
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 时区固定东八区；rewriteBatchedStatements 提升批量写入（库存流水/轨迹批量回填）
+    url: "jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:wms_platform}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:}
+    # 读写分离（P5.3）：默认不配从库 = 单库行为，零额外复杂度。
+    # 配了 url 才启用路由；**未标注 @ReadOnly 的读写仍走主库**（安全默认）。
+    # 从库只服务"浏览类查询"；库存/资金/对账等参与业务判断的读一律主库（见 ReadOnly 注解文档）。
+    replica:
+      url: ${DB_REPLICA_URL:}
+      username: ${DB_REPLICA_USER:${DB_USER:root}}
+      password: ${DB_REPLICA_PASSWORD:${DB_PASSWORD:}}
+      pool-size: ${DB_REPLICA_POOL_SIZE:20}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 3000
+      # 资金/库存任务属短事务，连接存活时间不宜过长
+      max-lifetime: 1200000
+
+  # 迁移脚本由《01-数据模型DDL与状态机.md》§3 抽取生成：db/migration/V1__baseline.sql
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    encoding: UTF-8
+    baseline-on-migrate: true
+    validate-on-migrate: true
+
+  # 读写分离（P5.3）：默认不配从库 = 单库行为，零额外复杂度。
+  # 配了 url 才启用路由；**未标注 @ReadOnly 的读写仍走主库**（安全默认）。
+  # 从库只服务"浏览类查询"；库存/资金/对账等参与业务判断的读一律主库（见 ReadOnly 注解文档）。
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6380}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+
+  jackson:
+    # 时间统一带毫秒，与 01 的 DATETIME(3) 对齐
+    date-format: "yyyy-MM-dd HH:mm:ss.SSS"
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+  # ==========================================================================
+  # RabbitMQ（仅 wms.messaging.mode=RABBIT 时使用；NONE 模式不连 broker）
+  #   publisher-confirm-type=correlated：broker 确认后才算投递成功（未确认 → 发件箱重试）
+  #   listener 重试 3 次后进死信队列（不静默丢消息）
+  # 注意：这段必须在 spring: 块内（缩进 2 空格）。写错层级不会报错，只会静默失效——
+  # 本项目实测过：配置落到 server: 块下 → 连的是默认端口 5672 → Connection refused。
+  # ==========================================================================
+  rabbitmq:
+    host: ${RABBIT_HOST:127.0.0.1}
+    port: ${RABBIT_PORT:5673}
+    username: ${RABBIT_USER:wms}
+    password: ${RABBIT_PASSWORD:wms123}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      # 不可路由的消息退回给生产者（配合 publisher-returns），否则 broker 会静默丢弃
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2000ms
+
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+  # 网关/负载均衡下取真实 IP（审计与门岗记录需要）
+  forward-headers-strategy: framework
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    # 枚举以中文值存库（01 §1.1 约定），不做自动枚举映射
+    default-enum-type-handler: org.apache.ibatis.type.EnumTypeHandler
+  global-config:
+    banner: false
+    db-config:
+      # 主键由应用生成（雪花），与 01 §1.1 一致
+      id-type: input
+      logic-delete-field: deleted
+      logic-not-delete-value: 0
+      logic-delete-value: 1
+
+wms:
+  # 消息与发件箱（P2）：默认 NONE = 审批通过同事务直接执行（不依赖 broker）；
+  # RABBIT = 写事务性发件箱 → 投 RabbitMQ → 消费方执行（最终一致）
+  messaging:
+    mode: ${MESSAGING_MODE:NONE}
+    publisher-enabled: ${MESSAGING_PUBLISHER_ENABLED:false}
+  # RabbitMQ 连接（仅 mode=RABBIT 时使用）
+  # ==========================================================================
+  # Nacos 接入（P0.5）：注册中心 + 配置中心
+  # ==========================================================================
+  # 默认 **关闭**：开发与 CI 不应该被外部依赖卡住（CI 里没有 Nacos，开着只会刷 ERROR 日志）。
+  # 本地/生产要用时用环境变量打开：NACOS_ENABLED=true
+  #
+  # 注意：以下几项是**引导配置**，只能来自本地/环境变量——不能来自 Nacos 自己
+  # （否则就是"用 Nacos 的地址去问 Nacos"）
+  nacos:
+    enabled: ${NACOS_ENABLED:false}
+    # 服务端地址（多个用逗号分隔）
+    server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+    # 命名空间（空 = public）。多环境隔离时这里是 dev/test/prod 的命名空间 ID
+    namespace: ${NACOS_NAMESPACE:}
+    group: ${NACOS_GROUP:DEFAULT_GROUP}
+    # 注册到 Nacos 的服务名（P1 拆服务后每个服务一个名字）
+    service-name: ${NACOS_SERVICE:wms-core}
+    # 鉴权凭据：**只从环境变量/密钥管理注入**（Nacos 开鉴权时必填）
+    username: ${NACOS_USERNAME:}
+    password: ${NACOS_PASSWORD:}
+    # 只想要配置中心、不想注册时置 false
+    register-enabled: ${NACOS_REGISTER_ENABLED:true}
+    # 要拉取的 DataId（逗号分隔）。约定与机器上既有 Nacos 一致：{服务名}.yml
+    config-data-ids: ${NACOS_DATA_IDS:wms-platform.yml}
+    timeout-ms: ${NACOS_TIMEOUT_MS:3000}
+    # Nacos 不可用时是否让应用启动失败。默认 false = 降级用本地配置启动并打 ERROR
+    fail-fast: ${NACOS_FAIL_FAST:false}
+    # 注册用的 IP/端口（空 = 自动探测 / 取 server.port）
+    instance-ip: ${NACOS_INSTANCE_IP:}
+    instance-port: ${NACOS_INSTANCE_PORT:}
+
+  # ==========================================================================
+  # 缓存（P3.2）：默认关闭。仅用于主数据解析等读多写少数据；库存/资金数据永不缓存
+  cache:
+    enabled: ${CACHE_ENABLED:false}
+    master-data-ttl-minutes: ${CACHE_MD_TTL_MINUTES:10}
+  # 对象存储（P5）：默认 LOCAL 本地磁盘；MINIO 模式需先起 minio（见 deploy/storage/docker-compose.yml）
+  storage:
+    mode: ${STORAGE_MODE:LOCAL}
+    local-root: ${STORAGE_LOCAL_ROOT:./data/storage}
+    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
+    access-key: ${MINIO_ACCESS_KEY:wms}
+    secret-key: ${MINIO_SECRET_KEY:wms123456}
+    bucket: ${MINIO_BUCKET:wms-proofs}
+    presigned-ttl-minutes: ${MINIO_PRESIGNED_TTL_MINUTES:30}
+  # XXL-JOB 执行器（P2.2）：默认关闭
+  #   开启后由调度中心触发；**租约互斥/幂等/事务仍由本项目任务框架保证**
+  #   （所有 @XxlJob 处理器都只转调 ScheduledJobService，不复制业务逻辑）
+  # ==========================================================================
+  xxl-job:
+    enabled: ${XXL_JOB_ENABLED:false}
+    admin-addresses: ${XXL_JOB_ADMIN:http://127.0.0.1:18081/xxl-job-admin}
+    access-token: ${XXL_JOB_TOKEN:wms_p2_token}
+    app-name: ${XXL_JOB_APPNAME:wms-core-executor}
+    port: ${XXL_JOB_PORT:0}
+    log-path: ${XXL_JOB_LOGPATH:./logs/xxl-job}
+    log-retention-days: 7
+  schedule:
+    # 定时任务开关：默认关闭（本地/测试开着会干扰集成测试，也会产生生产口径的告警噪音）
+    enabled: ${SCHEDULE_ENABLED:false}
+    # 每个任务的 cron 可单独调整；多实例部署下由租约保证只有一个实例真正执行
+    cron:
+      fallback-sweep: ${CRON_FALLBACK_SWEEP:0 5 * * * *}
+      daily-reconcile: ${CRON_DAILY_RECONCILE:0 30 1 * * *}
+      reconcile-bill-alert: ${CRON_RECONCILE_ALERT:0 0 9 * * *}
+      settle-stuck-alert: ${CRON_SETTLE_ALERT:0 0 9 * * *}
+      channel-query-retry: ${CRON_CHANNEL_RETRY:0 */10 * * * *}
+  snowflake:
+    # 多实例部署时必须保证 (datacenter-id, worker-id) 组合唯一，否则会产生重复 ID
+    datacenter-id: ${SNOWFLAKE_DC:0}
+    worker-id: ${SNOWFLAKE_WORKER:0}
+  security:
+    # 收件人 PII 加密密钥（Base64 的 32 字节）；生产必须由 KMS 注入，禁止写死
+    pii-key-base64: ${PII_KEY_BASE64:bG9jYWwtZGV2LXBpaS1rZXktMDEyMzQ1Njc4OWFiY2Q=}
+    # 网关内部凭据：业务服务据此判断 X-User-Id 这类身份头是网关注入的还是客户端伪造的。
+    # 必须与 wms-gateway 的 wms.gateway.internal-token 一致；
+    # 为空 = 未启用防伪造校验（服务会剥掉这些头并放行，身份仍以自身令牌校验为准）——本地不开网关时即此情况
+    gateway-internal-token: ${GATEWAY_INTERNAL_TOKEN:}
+  # 资金通道开关（04 §九）：生产环境禁止 MOCK，由 MockChannelGuard 启动校验
+  payment:
+    channel:
+      mode: ${PAYMENT_CHANNEL_MODE:MOCK}
+
+logging:
+  level:
+    root: info
+    com.wms.platform: info
+  pattern:
+    # traceId 进日志：排障时用响应里的 traceId 直接 grep 全链路
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-}] %logger{40} - %msg%n"
+
+# ==========================================================================================
+# 可观测性（P4）
+#   /actuator/health      探针用（业务健康另见 /api/v1/health）
+#   /actuator/prometheus  Prometheus 抓取端点
+#   指标统一带 application 标签，多服务共用一个 Prometheus 时可按服务区分
+# ==========================================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  prometheus:
+    metrics:
+      export:
+        enabled: true

@@ -1,0 +1,112 @@
+server:
+  port: 8088
+  shutdown: graceful
+
+spring:
+  application:
+    name: wms-gateway
+  # ==========================================================================
+  # 路由（P1.2）：按服务前缀分流，用 lb://服务名 走 Nacos 服务发现 + 负载均衡
+  #   ① 更具体的路径必须写在前面（Gateway 按声明顺序匹配，Path=/api/** 会兜住所有）
+  #   ② 服务名与服务注册时用的 wms.nacos.service-name 一致
+  #   ③ 若未启用 Nacos（wms.nacos.enabled=false），lb:// 无实例可用 → 用 WMS_CORE_URI 等
+  #      固定地址兜底（本地无注册中心时的降级路径）
+  # ==========================================================================
+  cloud:
+    gateway:
+      routes:
+        - id: wms-auth
+          uri: ${AUTH_URI:lb://wms-auth}
+          predicates:
+            - Path=/api/v1/auth/**
+          filters: &rateLimit
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_RATE_PER_SECOND:200}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_RATE_BURST:400}
+                key-resolver: "#{@userOrIpKeyResolver}"
+        - id: wms-masterdata
+          uri: ${MASTERDATA_URI:lb://wms-masterdata}
+          predicates:
+            - Path=/api/v1/master/**
+          filters: *rateLimit
+        - id: wms-fns
+          # 财务服务（P3.4 从单体拆出）：对账 / 结算 / 兜底扣减 / 垫付 / 价目表 / 运费试算
+          # 拆分策略与本仓库 auth/masterdata 一致：先把**流量**迁到独立进程，代码归属随后收敛。
+          # 三条前缀必须都指过来，否则会落到下面的 /api/** 默认路由、仍然打在单体上：
+          #   /api/v1/finance/**         对账、结算、兜底、垫付
+          #   /api/v1/pricing/**         价目表与运费试算（API-CS-04）
+          #   /api/v1/reconcile-bills/** 对账单查询
+          uri: ${FNS_URI:lb://wms-fns}
+          predicates:
+            - Path=/api/v1/finance/**,/api/v1/pricing/**,/api/v1/reconcile-bills/**
+          filters: *rateLimit
+        - id: wms-core
+          uri: ${WMS_CORE_URI:lb://wms-core}
+          predicates:
+            - Path=/api/**
+          filters: *rateLimit
+      # 关闭默认过滤器对响应体的处理，避免 Cookie/Set-Cookie 被重写（一期无 Cookie 会话，保持显式）
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+  data:
+    redis:
+      # 限流计数用的 Redis（**只做限流/缓存**；库存与资金仍以 DB 为准，见 README §41）
+      # 踩坑记录：本网关曾因为 DataId 撞名（wms-gateway.yml 与机器上另一个项目的配置同名）
+      # 读到了对方的 spring.data.redis.host=redis，导致每次请求都花 10 秒做 DNS 重试。
+      # 现在 DataId 统一加 wms-platform- 前缀，且这里显式给出本项目的地址。
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6380}
+      timeout: 2s
+      connect-timeout: 2s
+
+wms:
+  gateway:
+    # 令牌签名密钥：必须与业务服务一致（只从环境变量注入，别写进 Nacos）
+    token-secret: ${TOKEN_SECRET:dev-only-change-me}
+    # 内部凭据：业务服务据此判断身份头是网关注入还是客户端伪造（生产必须设置）
+    internal-token: ${GATEWAY_INTERNAL_TOKEN:}
+    rate-limit-enabled: ${GATEWAY_RATE_LIMIT:true}
+    auth-log-enabled: ${GATEWAY_AUTH_LOG:false}
+
+  # Nacos：与业务服务同一套接入方式（注册 + 配置中心），单实例也注册
+  nacos:
+    enabled: ${NACOS_ENABLED:false}
+    server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+    namespace: ${NACOS_NAMESPACE:}
+    group: ${NACOS_GROUP:DEFAULT_GROUP}
+    service-name: ${NACOS_SERVICE:wms-gateway}
+    username: ${NACOS_USERNAME:}
+    password: ${NACOS_PASSWORD:}
+    register-enabled: ${NACOS_REGISTER_ENABLED:true}
+    config-data-ids: ${NACOS_DATA_IDS:wms-platform-gateway.yml}
+    timeout-ms: ${NACOS_TIMEOUT_MS:3000}
+    fail-fast: ${NACOS_FAIL_FAST:false}
+
+logging:
+  level:
+    com.wms.platform: INFO
+    # 网关路由匹配细节（排查 404 时临时打开）
+    org.springframework.cloud.gateway: INFO
+
+# ==========================================================================================
+# 可观测性（P4）
+#   /actuator/health      探针用（业务健康另见 /api/v1/health）
+#   /actuator/prometheus  Prometheus 抓取端点
+#   指标统一带 application 标签，多服务共用一个 Prometheus 时可按服务区分
+# ==========================================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  prometheus:
+    metrics:
+      export:
+        enabled: true

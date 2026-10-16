@@ -1,0 +1,163 @@
+# ==========================================================================================
+# wms-gateway 的 K8s 清单（P5）—— 由 wms-core.yaml 模板生成，保证多服务一致
+#
+# 用法：
+#   kubectl apply -f deploy/k8s/wms-gateway.yaml
+#   kubectl apply -f deploy/k8s/wms-auth.yaml
+#   kubectl apply -f deploy/k8s/wms-masterdata.yaml
+#   kubectl apply -f deploy/k8s/wms-gateway.yaml
+#   kubectl apply -f deploy/k8s/wms-infra.example.yaml   # Nacos/Redis/RabbitMQ/MySQL 的外部地址
+#
+# 说明（为什么这样设）：
+#   - **探针分两种**：startupProbe 给慢启动的 JVM（避免 liveness 早期误杀，JVM 起不来是常见的
+#     "启动即被 K8s 重启循环"根因）；readinessProbe 用 Actuator health（P4 已暴露，探针与监控同源，
+#     不会出现"探针说健康、监控说异常"的分裂）。
+#   - **优雅停机**：terminationGracePeriodSeconds 30 + PreStop sleep，
+#     让 K8s 先从 Service 摘流量再让进程退出——否则滚动更新时会有一批 502/503。
+#   - **资源 limits/requests 都写**：只写 requests 会被节点内存压力杀掉；只写 limits 会让调度失真。
+#   - **配置与密钥分离**：非敏感配置 ConfigMap，口令/密钥用 Secret（此处为示例值，生产应接密封/密钥管理）。
+# ==========================================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wms-gateway
+  labels: { app: wms-gateway }
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }   # 不允许不可用实例：先起后停
+  selector:
+    matchLabels: { app: wms-gateway }
+  template:
+    metadata:
+      labels: { app: wms-gateway }
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: wms-gateway
+          image: wms/wms-gateway:1.0.0          # CI 产出的镜像 tag
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8088 }
+          envFrom:
+            - configMapRef: { name: wms-common-config }
+            - secretRef: { name: wms-secrets }
+          env:
+            - { name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70 -Duser.timezone=Asia/Shanghai" }
+            - { name: POD_NAME, valueFrom: { fieldRef: { fieldPath: metadata.name } } }
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+          startupProbe:                     # 给 JVM 最多 150s 启动（30×5s）
+            httpGet: { path: /actuator/health/liveness, port: http }
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 15
+            failureThreshold: 4
+          readinessProbe:                    # 业务健康（含 DB/依赖），不健康就别接流量
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                # 等 K8s 先把本 Pod 从 Service Endpoints 摘掉，再让 JVM 退出（避免滚动更新 502）
+                command: ["sh", "-c", "sleep 10"]
+      # 分散到不同节点：单节点故障不至于把同一服务所有副本带走
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: { app: wms-gateway }
+                topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wms-gateway
+  labels: { app: wms-gateway }
+spec:
+  selector: { app: wms-gateway }
+  ports:
+    - { name: http, port: 8088, targetPort: http }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: wms-gateway
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: wms-gateway }
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+---
+# 让 Prometheus（P4）按注解发现本服务；生产若用 Prometheus Operator 可换成 ServiceMonitor
+apiVersion: v1
+kind: Service
+metadata:
+  name: wms-gateway-metrics
+  labels: { app: wms-gateway }
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: "/actuator/prometheus"
+    prometheus.io/port: "8088"
+spec:
+  selector: { app: wms-gateway }
+  ports:
+    - { name: metrics, port: 8088, targetPort: http }
+---
+# 非敏感公共配置（所有服务共享）
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wms-common-config
+data:
+  # --- 服务发现与配置中心 ---
+  NACOS_ENABLED: "true"
+  NACOS_ADDR: "nacos.infra.svc.cluster.local:8848"
+  NACOS_NAMESPACE: "prod"
+  # --- 数据源（读写分离见 deploy/k8s/README 的说明：写走主库，读走只读副本） ---
+  DB_HOST: "mysql-primary.infra.svc.cluster.local"
+  DB_PORT: "3306"
+  DB_NAME: "wms"
+  # --- 中间件 ---
+  REDIS_HOST: "redis.infra.svc.cluster.local"
+  REDIS_PORT: "6379"
+  RABBIT_HOST: "rabbitmq.infra.svc.cluster.local"
+  RABBIT_PORT: "5672"
+  RABBIT_USER: "wms"
+  # --- 开关（P2/P3/P4/P5）：生产一律开真依赖 ---
+  MESSAGING_MODE: "RABBIT"
+  MESSAGING_PUBLISHER_ENABLED: "true"
+  XXL_JOB_ENABLED: "true"
+  XXL_JOB_ADMIN: "http://xxl-job-admin.infra.svc.cluster.local:8080/xxl-job-admin"
+  CACHE_ENABLED: "true"
+  STORAGE_MODE: "MINIO"
+  MINIO_ENDPOINT: "http://minio.infra.svc.cluster.local:9000"
+  MINIO_BUCKET: "wms-proofs"
+  # --- 生产必须真通道：应用在 prod profile 下会拒绝 MOCK ---
+  PAYMENT_CHANNEL_MODE: "REAL"
+---
+# 密钥（示例值！生产请用 sealed-secrets / 外部密钥管理，不要把明文提交到仓库）
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wms-secrets
+type: Opaque
+stringData:
+  DB_USER: "wms_app"
+  DB_PASSWORD: "CHANGE_ME_DB_PASSWORD"
+  RABBIT_PASSWORD: "CHANGE_ME_RABBIT_PASSWORD"
+  MINIO_ACCESS_KEY: "CHANGE_ME_MINIO_KEY"
+  MINIO_SECRET_KEY: "CHANGE_ME_MINIO_SECRET"
+  TOKEN_SECRET: "CHANGE_ME_TOKEN_SECRET"
+  PII_KEY_BASE64: "CHANGE_ME_PII_KEY"
+  GATEWAY_INTERNAL_TOKEN: "CHANGE_ME_GATEWAY_TOKEN"

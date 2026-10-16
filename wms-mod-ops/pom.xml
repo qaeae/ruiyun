@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ops 领域模块（P0 拆分产物）。
+
+  本文件同时是**架构边界的执法者**：Maven 依赖图就是服务边界——
+  想引用未声明的领域，编译直接失败（比 ArchUnit 更硬，且不依赖运行时扫描）。
+
+  当前依赖方向（与 11-微服务拆分方案（分期）.md §1.2 的实测依赖一致，无环）：
+    ops → wms-common
+    ops → wms-mod-fns
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.wms.platform</groupId>
+        <artifactId>wms-platform</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>wms-mod-ops</artifactId>
+    <name>wms-mod-ops</name>
+    <description>定时任务领域（任务壳 + 5 个任务）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-common</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+    </dependencies>
+</project>

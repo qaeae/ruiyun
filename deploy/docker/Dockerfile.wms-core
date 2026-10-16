@@ -1,0 +1,35 @@
+# ==========================================================================================
+# wms-core 镜像（P5）。构建上下文 = 仓库根目录：
+#   docker build -f deploy/docker/Dockerfile.wms-core -t wms/wms-core:1.0.0 .
+#
+# 关键点：
+#   1. 只拷贝 `-boot.jar`（Spring Boot repackage 后的可执行包）——
+#      主制品是普通 jar（供 ArchUnit 扫描类），**没有 Main-Class**，拷错会启动即失败。
+#   2. 非 root 运行（uid 10001）：容器逃逸时影响面更小。
+#   3. 时区固定 Asia/Shanghai：日志/对账/结算都与本地时间强相关，容器默认 UTC 会导致"跨天"错乱。
+#   4. JAVA_TOOL_OPTIONS 用 MaxRAMPercentage 而不是固定 -Xmx：按容器 limit 自适应，
+#      避免 K8s 里内存超限被 OOMKilled。
+#   5. HEALTHCHECK 打 Actuator（P4 已暴露），与 K8s 探针同源。
+# ==========================================================================================
+FROM eclipse-temurin:17-jre-jammy
+
+ARG SERVICE=wms-core
+ARG PORT=8080
+
+ENV TZ=Asia/Shanghai \
+    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=70 -Duser.timezone=Asia/Shanghai -Dfile.encoding=UTF-8" \
+    SERVER_PORT=${PORT}
+
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
+    && groupadd -g 10001 wms && useradd -u 10001 -g wms -s /sbin/nologin wms
+
+WORKDIR /app
+COPY wms-core/target/wms-core-*-boot.jar /app/app.jar
+RUN chown -R wms:wms /app
+USER wms
+
+EXPOSE ${PORT}
+HEALTHCHECK --interval=15s --timeout=3s --start-period=60s --retries=3 \
+    CMD wget -q -O- http://127.0.0.1:${PORT}/actuator/health || exit 1
+
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

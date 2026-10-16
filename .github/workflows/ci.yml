@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, 'ci/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 第一道门：编译 + 单元测试（含 MockMvc 横切能力自检），不需要 Docker/数据库
+  build:
+    name: 编译与单元测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      # CI 环境走中央仓；国内自建 Runner 请配置 mirror（见 README）
+      - name: mvn clean verify（跳过需 Docker 的集成测试）
+        run: mvn -B clean verify -Dit.skip=true
+      # 前端契约漂移检查：api-contract.md 由 Controller 注解生成，必须与代码保持一致。
+      # 为什么放 CI：前端按这份清单写代码，一旦过期代价是"联调时逐条试错"；
+      # 而后端加接口时几乎不可能记得同步一份手写清单——所以用生成 + 校验，而不是靠人记得。
+      - name: 接口契约清单是否与代码一致
+        run: |
+          perl scripts/export-api-contract.pl > /tmp/api-contract.md
+          if ! diff -u docs/frontend/api-contract.md /tmp/api-contract.md; then
+            echo "::error::docs/frontend/api-contract.md 与代码不一致，请执行 perl scripts/export-api-contract.pl > docs/frontend/api-contract.md"
+            exit 1
+          fi
+      - name: 上传测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports/**'
+          if-no-files-found: ignore
+
+  # 第二道门：模块边界守护。越界即失败，防止模块化单体随时间腐化
+  arch-guard:
+    name: 架构边界守护（ArchUnit）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: 安装被扫描模块并执行边界规则
+        run: mvn -B -q -pl wms-archtest -am test
+
+  # 第三道门：集成测试（Testcontainers 起真实 MySQL，验证 Flyway 建表与幂等裁决）
+  # 仅在主干分支运行：耗时长，且需要 Docker
+  integration:
+    name: 集成测试（真实 MySQL）
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: 运行 *IT（Testcontainers）
+        run: mvn -B -pl wms-core -am verify -Dit.skip=false
+      - name: 上传集成测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failsafe-reports
+          path: '**/target/failsafe-reports/**'
+          if-no-files-found: ignore
+
+  # 第四道门：镜像构建（仅主干分支，需制品仓库凭据）
+  build-image:
+    name: 构建镜像
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    needs: [build, arch-guard]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: 打包
+        run: mvn -B -pl wms-core -am package -DskipTests
+      - name: 构建并推送镜像
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          IMAGE=ghcr.io/${{ github.repository }}/wms-core:${{ github.sha }}
+          docker build -f ci/Dockerfile -t "$IMAGE" .
+          docker tag "$IMAGE" ghcr.io/${{ github.repository }}/wms-core:latest
+          docker push "$IMAGE"
+          docker push ghcr.io/${{ github.repository }}/wms-core:latest

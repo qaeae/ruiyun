@@ -1,0 +1,143 @@
+server:
+  port: 8081
+  shutdown: graceful
+
+spring:
+  # 代理方式（P5.3 踩坑）：@ReadOnly 只标在实现类上时，JDK 动态代理（默认）
+  # 暴露的是接口方法，@annotation 切点匹配不到 → 路由不生效。
+  # 改用 CGLIB（proxy-target-class=true）后，切点按目标类方法匹配，注解稳定生效。
+  aop:
+    proxy-target-class: true
+  application:
+    name: wms-auth
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:wms_integration}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:}
+    # 读写分离（P5.3）：默认不配从库 = 单库行为。配了 url 才启用路由；
+    # **未标注 @ReadOnly 的读写仍走主库**（安全默认 —— 复制异步，业务判断读到旧值就是差错）。
+    replica:
+      url: ${DB_REPLICA_URL:}
+      username: ${DB_REPLICA_USER:${DB_USER:root}}
+      password: ${DB_REPLICA_PASSWORD:${DB_PASSWORD:}}
+      pool-size: ${DB_REPLICA_POOL_SIZE:20}
+  # ==========================================================================
+  # 迁移**只由 wms-core 执行**（它是 schema 的 owner）。
+  # 多进程同时对同一个库跑 Flyway 会抢锁/互相阻塞（Flyway 有锁，但并发启动会出现
+  # "另一个实例正在迁移"的等待与偶发失败）。等真正分库时，每个服务才各自拥有自己的迁移。
+  # ==========================================================================
+  flyway:
+    enabled: false
+  jackson:
+    time-zone: Asia/Shanghai
+  # ==========================================================================
+  # Redis（P3.2 缓存；8080 同实例，6380 是避让同机其它项目后的端口）
+  # 读写分离（P5.3）：默认不配从库 = 单库行为，零额外复杂度。
+  # 配了 url 才启用路由；**未标注 @ReadOnly 的读写仍走主库**（安全默认）。
+  # 从库只服务"浏览类查询"；库存/资金/对账等参与业务判断的读一律主库（见 ReadOnly 注解文档）。
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6380}
+  # RabbitMQ（仅 wms.messaging.mode=RABBIT 时使用；NONE 模式不连 broker）
+  #   publisher-confirm-type=correlated：broker 确认后才算投递成功（未确认 → 发件箱重试）
+  #   listener 重试 3 次后进死信队列（不静默丢消息）
+  # 注意：这段必须在 spring: 块内（缩进 2 空格）。写错层级不会报错，只会静默失效——
+  # 本项目实测过：配置落到 server: 块下 → 连的是默认端口 5672 → Connection refused。
+  # ==========================================================================
+  rabbitmq:
+    host: ${RABBIT_HOST:127.0.0.1}
+    port: ${RABBIT_PORT:5673}
+    username: ${RABBIT_USER:wms}
+    password: ${RABBIT_PASSWORD:wms123}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      # 不可路由的消息退回给生产者（配合 publisher-returns），否则 broker 会静默丢弃
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2000ms
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+wms:
+  # 对象存储（P5）：默认 LOCAL 本地磁盘；MINIO 模式需先起 minio（见 deploy/storage/docker-compose.yml）
+  storage:
+    mode: ${STORAGE_MODE:LOCAL}
+    local-root: ${STORAGE_LOCAL_ROOT:./data/storage}
+    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
+    access-key: ${MINIO_ACCESS_KEY:wms}
+    secret-key: ${MINIO_SECRET_KEY:wms123456}
+    bucket: ${MINIO_BUCKET:wms-proofs}
+    presigned-ttl-minutes: ${MINIO_PRESIGNED_TTL_MINUTES:30}
+  cache:
+    enabled: ${CACHE_ENABLED:false}
+  # 消息与发件箱（P2）：默认 NONE = 审批通过同事务直接执行（不依赖 broker）；
+  # RABBIT = 写事务性发件箱 → 投 RabbitMQ → 消费方执行（最终一致）
+  messaging:
+    mode: ${MESSAGING_MODE:NONE}
+    publisher-enabled: ${MESSAGING_PUBLISHER_ENABLED:false}
+  # RabbitMQ 连接（仅 mode=RABBIT 时使用）
+  nacos:
+    enabled: ${NACOS_ENABLED:false}
+    server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+    namespace: ${NACOS_NAMESPACE:}
+    group: ${NACOS_GROUP:DEFAULT_GROUP}
+    # 服务名即服务发现的标识：网关按 lb://wms-auth 转发
+    service-name: ${NACOS_SERVICE:wms-auth}
+    username: ${NACOS_USERNAME:}
+    password: ${NACOS_PASSWORD:}
+    register-enabled: ${NACOS_REGISTER_ENABLED:true}
+    # DataId 统一加 wms-platform- 前缀：避免与同机其它项目的配置撞名（踩过：网关读到别人的 wms-gateway.yml）
+    config-data-ids: ${NACOS_DATA_IDS:wms-platform-auth.yml}
+    timeout-ms: ${NACOS_TIMEOUT_MS:3000}
+    fail-fast: ${NACOS_FAIL_FAST:false}
+  security:
+    # PII 密钥（建用户时加密手机号）；生产由 KMS 注入
+    pii-key-base64: ${PII_KEY_BASE64:bG9jYWwtZGV2LXBpaS1rZXktMDEyMzQ1Njc4OWFiY2Q=}
+    # 令牌签名密钥：**必须与 wms-core / wms-gateway 一致**，否则本服务签发的令牌别人验不过
+    token-secret: ${TOKEN_SECRET:dev-only-change-me}
+    # 网关注入身份的内部凭据（与网关、wms-core 一致）
+    gateway-internal-token: ${GATEWAY_INTERNAL_TOKEN:}
+  schedule:
+    enabled: false
+
+logging:
+  level:
+    com.wms.platform: INFO
+
+# ==========================================================================================
+# 可观测性（P4）
+#   /actuator/health      探针用（业务健康另见 /api/v1/health）
+#   /actuator/prometheus  Prometheus 抓取端点
+#   指标统一带 application 标签，多服务共用一个 Prometheus 时可按服务区分
+# ==========================================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  prometheus:
+    metrics:
+      export:
+        enabled: true

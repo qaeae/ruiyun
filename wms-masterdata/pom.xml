@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  wms-masterdata：权限与审批**独立服务**（P1.2 从单体拆出）。
+
+  拆分原则（strangler 渐进式）：**先把流量迁到独立进程**，代码归属随后收敛。
+  —— 本服务独立部署、独立伸缩、独立发布；`wms-core` 暂时仍保留 au 模块，
+     因为 pda/iv 的主数据解析目前是同进程调用（P2 改为审批事件后即可物理移除）。
+     这一步的价值是真实的：认证流量不再与业务流量争资源、可单独扩容/重启。
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.wms.platform</groupId>
+        <artifactId>wms-platform</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>wms-masterdata</artifactId>
+    <name>wms-masterdata</name>
+    <description>主数据服务（商家/仓库/库区/库位/SKU/箱规/设备档案）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-mod-md</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-common</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <!-- 数据库驱动：由各服务自己声明（就像每个服务自己的部署依赖，不从别人那里继承） -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <mainClass>com.wms.platform.masterdata.MasterDataApplication</mainClass>
+                    <classifier>boot</classifier>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

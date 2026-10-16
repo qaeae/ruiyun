@@ -1,0 +1,39 @@
+# ===== Java / Maven =====
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+
+# ===== IDE =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+
+# ===== 日志与临时产物 =====
+*.log
+logs/
+hs_err_pid*.log
+
+# ===== 运行期数据（对象存储本地实现落盘的回单/面单影像，属环境产物不是源码） =====
+wms-core/data/
+
+# ===== 本地敏感配置（禁止提交真实密钥/口令） =====
+application-secret.yml
+application-prod.yml
+*.p12
+*.jks
+*.keystore
+.pem
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== 本地 AI/编辑器工具配置（属开发机环境，不入库） =====
+.deepcode/

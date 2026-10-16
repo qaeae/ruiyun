@@ -1,0 +1,97 @@
+# 接口契约清单（自动生成，请勿手改）
+
+> 生成命令：`perl scripts/export-api-contract.pl > docs/frontend/api-contract.md`
+> 来源：`wms-core/src/main/java/**/*Controller.java` 的映射注解与权限注解。
+> 字段口径（请求头/成功码/错误码/时间格式/分页）见 `W5-FRONTEND-KICKOFF.md`。
+
+| 方法 | 路径 | 权限码 |
+|---|---|---|
+| POST | `/api/v1/approvals` | `PermissionCodes.APPROVAL_APPLY` |
+| GET | `/api/v1/approvals/pending` | `PermissionCodes.APPROVAL_REVIEW` |
+| GET | `/api/v1/approvals/mine` | `PermissionCodes.APPROVAL_APPLY` |
+| GET | `/api/v1/approvals/{id}` | `PermissionCodes.APPROVAL_REVIEW` |
+| POST | `/api/v1/approvals/{id}/approve` | `PermissionCodes.APPROVAL_REVIEW` |
+| POST | `/api/v1/approvals/{id}/reject` | `PermissionCodes.APPROVAL_REVIEW` |
+| POST | `/api/v1/approvals/{id}/withdraw` | `PermissionCodes.APPROVAL_APPLY` |
+| POST | `/api/v1/auth/login` | `PublicApi` |
+| POST | `/api/v1/auth/refresh` | `PublicApi` |
+| POST | `/api/v1/auth/me` | `PublicApi` |
+| POST | `/api/v1/auth/users` | `PermissionCodes.AUTH_USER_MANAGE` |
+| GET | `/api/v1/auth/users` | `PermissionCodes.AUTH_USER_MANAGE` |
+| POST | `/api/v1/auth/users/{userId}/status` | `PermissionCodes.AUTH_USER_MANAGE` |
+| POST | `/api/v1/auth/roles` | `PermissionCodes.AUTH_ROLE_MANAGE` |
+| GET | `/api/v1/auth/roles` | `PermissionCodes.AUTH_ROLE_MANAGE` |
+| POST | `/api/v1/auth/roles/{roleId}/permissions` | `PermissionCodes.AUTH_ROLE_MANAGE` |
+| POST | `/api/v1/auth/users/{userId}/roles` | `PermissionCodes.AUTH_ROLE_MANAGE` |
+| POST | `/api/v1/auth/users/{userId}/warehouses` | `PermissionCodes.AUTH_WAREHOUSE_GRANT` |
+| GET | `/api/v1/auth/permissions` | `PermissionCodes.AUTH_ROLE_MANAGE` |
+| POST | `/api/v1/auth/permissions/sync` | `PermissionCodes.AUTH_ROLE_MANAGE` |
+| POST | `/api/v1/finance/reconcile-bills` | `PermissionCodes.FINANCE_RECONCILE_MANAGE` |
+| GET | `/api/v1/finance/reconcile-bills` | `PermissionCodes.FINANCE_QUERY` |
+| GET | `/api/v1/finance/reconcile-bills/{rclNo}` | `PermissionCodes.FINANCE_QUERY` |
+| POST | `/api/v1/finance/reconcile-bills/{rclNo}/items/{itemId}/handle` | `PermissionCodes.FINANCE_RECONCILE_MANAGE` |
+| POST | `/api/v1/finance/reconcile-bills/{rclNo}/confirm` | `PermissionCodes.FINANCE_RECONCILE_MANAGE` |
+| POST | `/api/v1/finance/settle-batches` | `PermissionCodes.FINANCE_SETTLE_MANAGE` |
+| POST | `/api/v1/finance/settle-batches/{stbNo}/dispatch` | `PermissionCodes.FINANCE_SETTLE_DISPATCH` |
+| GET | `/api/v1/finance/settle-batches` | `PermissionCodes.FINANCE_QUERY` |
+| GET | `/api/v1/finance/settle-batches/{stbNo}` | `PermissionCodes.FINANCE_QUERY` |
+| POST | `/api/v1/finance/fallback-deductions/sweep` | `PermissionCodes.FINANCE_SETTLE_MANAGE` |
+| POST | `/api/v1/finance/fallback-deductions/{waybillNo}/settle` | `PermissionCodes.FINANCE_SETTLE_MANAGE` |
+| POST | `/api/v1/finance/daily-reconciliation/run` | `PermissionCodes.FINANCE_RECONCILE_MANAGE` |
+| GET | `/api/v1/finance/daily-reconciliation` | `PermissionCodes.FINANCE_QUERY` |
+| POST | `/api/v1/finance/daily-reconciliation/{id}/handle` | `PermissionCodes.FINANCE_RECONCILE_MANAGE` |
+| POST | `/api/v1/finance/advance-payments` | `PermissionCodes.FINANCE_SETTLE_MANAGE` |
+| GET | `/api/v1/finance/advance-payments/limit` | `PermissionCodes.FINANCE_QUERY` |
+| POST | `/api/v1/finance/advance-payments/{waybillNo}/clear` | `PermissionCodes.FINANCE_SETTLE_MANAGE` |
+| GET | `/api/v1/finance/advance-payments` | `PermissionCodes.FINANCE_QUERY` |
+| GET | `/api/v1/health` | `PublicApi` |
+| POST | `/api/v1/health/check` | `PublicApi` |
+| POST | `/api/v1/inventory/reservations` | `PermissionCodes.STOCK_RESERVE` |
+| POST | `/api/v1/inventory/releases` | `PermissionCodes.STOCK_RESERVE` |
+| POST | `/api/v1/inventory/moves` | `PermissionCodes.STOCK_MOVE` |
+| POST | `/api/v1/inventory/allocations` | `PermissionCodes.STOCK_MOVE` |
+| POST | `/api/v1/inventory/picks` | `PermissionCodes.STOCK_MOVE` |
+| GET | `/api/v1/inventory/sku` | `PermissionCodes.STOCK_QUERY` |
+| GET | `/api/v1/inventory/locations` | `PermissionCodes.STOCK_QUERY` |
+| GET | `/api/v1/inventory/movements` | `PermissionCodes.STOCK_QUERY` |
+| POST | `/api/v1/inventory/invariant-check` | `PermissionCodes.STOCK_INVARIANT_CHECK` |
+| POST | `/api/v1/inventory/internal/receipts` | `PermissionCodes.STOCK_MOVE` |
+| POST | `/api/v1/inventory/internal/shipments` | `PermissionCodes.STOCK_MOVE` |
+| POST | `/api/v1/inventory/internal/adjustments` | `PermissionCodes.STOCK_ADJUST` |
+| POST | `/api/v1/stocktakes` | `PermissionCodes.STOCK_ADJUST` |
+| POST | `/api/v1/stocktakes/{stocktakeNo}/items` | `PermissionCodes.STOCK_ADJUST` |
+| POST | `/api/v1/stocktakes/{stocktakeNo}/submit` | `PermissionCodes.STOCK_ADJUST` |
+| POST | `/api/v1/stocktakes/{stocktakeNo}/approve` | `PermissionCodes.STOCK_ADJUST` |
+| POST | `/api/v1/stocktakes/{stocktakeNo}/reject` | `PermissionCodes.STOCK_ADJUST` |
+| GET | `/api/v1/stocktakes` | `PermissionCodes.STOCK_QUERY` |
+| GET | `/api/v1/stocktakes/{stocktakeNo}` | `PermissionCodes.STOCK_QUERY` |
+| POST | `/api/v1/master/devices` | `PermissionCodes.DEVICE_MANAGE` |
+| PUT | `/api/v1/master/devices` | `PermissionCodes.DEVICE_MANAGE` |
+| POST | `/api/v1/master/devices/enable-opt` | `PermissionCodes.DEVICE_MANAGE` |
+| GET | `/api/v1/master/devices/{deviceCode}` | `PermissionCodes.MASTER_QUERY` |
+| GET | `/api/v1/master/devices` | `PermissionCodes.MASTER_QUERY` |
+| POST | `/api/v1/master/merchants` | `PermissionCodes.MASTER_MERCHANT_CREATE` |
+| POST | `/api/v1/master/warehouses` | `PermissionCodes.MASTER_WAREHOUSE_CREATE` |
+| POST | `/api/v1/master/zones` | `PermissionCodes.MASTER_WAREHOUSE_CREATE` |
+| POST | `/api/v1/master/locations` | `PermissionCodes.MASTER_WAREHOUSE_CREATE` |
+| POST | `/api/v1/master/skus` | `PermissionCodes.MASTER_SKU_CREATE` |
+| POST | `/api/v1/master/skus/{skuId}/unit-conversions` | `PermissionCodes.MASTER_SKU_UNIT_CONV` |
+| GET | `/api/v1/master/skus/{skuId}/convert` | `PermissionCodes.MASTER_QUERY` |
+| GET | `/api/v1/master/merchants` | `PermissionCodes.MASTER_QUERY` |
+| GET | `/api/v1/master/warehouses` | `PermissionCodes.MASTER_QUERY` |
+| GET | `/api/v1/master/zones` | `PermissionCodes.MASTER_QUERY` |
+| GET | `/api/v1/master/locations` | `PermissionCodes.MASTER_QUERY` |
+| GET | `/api/v1/master/skus` | `PermissionCodes.MASTER_QUERY` |
+| GET | `/api/v1/master/skus/{skuId}/unit-conversions` | `PermissionCodes.MASTER_QUERY` |
+| POST | `/api/v1/master/merchants/{merchantId}/status` | `PermissionCodes.MASTER_STATUS_CHANGE` |
+| POST | `/api/v1/master/warehouses/{warehouseId}/status` | `PermissionCodes.MASTER_STATUS_CHANGE` |
+| POST | `/api/v1/master/locations/{locationId}/status` | `PermissionCodes.MASTER_STATUS_CHANGE` |
+| POST | `/api/v1/master/skus/{skuId}/status` | `PermissionCodes.MASTER_STATUS_CHANGE` |
+| GET | `/api/v1/jobs` | `PermissionCodes.OPS_JOB_QUERY` |
+| GET | `/api/v1/jobs/runs` | `PermissionCodes.OPS_JOB_QUERY` |
+| POST | `/api/v1/jobs/{jobName}/run` | `PermissionCodes.OPS_JOB_RUN` |
+| POST | `/api/v1/jobs/{jobName}/enabled` | `PermissionCodes.OPS_JOB_RUN` |
+| POST | `/api/v1/pda/sync/batch` | `PublicApi` |
+| GET | `/api/v1/pda/conflicts` | `PublicApi` |
+
+共 87 个接口。

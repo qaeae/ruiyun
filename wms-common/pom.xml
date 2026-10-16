@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.wms.platform</groupId>
+        <artifactId>wms-platform</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>wms-common</artifactId>
+    <name>wms-common</name>
+    <description>公共基础设施：统一响应/错误码/异常/幂等/雪花ID/PII 加密/追踪</description>
+
+    <dependencies>
+        <!-- 共享内核（错误码/统一响应/常量/Nacos/令牌）；本模块只保留 Servlet 相关能力 -->
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-kernel</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <!-- Web：统一响应与全局异常处理、TraceId 过滤器、幂等拦截器 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!--
+            RabbitMQ：事务性发件箱的投递通道（P2）。
+            放在 common 是因为"发件箱 + 发布器 + 消费基座"是所有服务共用的能力；
+            实际是否启用由 wms.messaging.mode 决定（默认 NONE，不连 broker 也能跑）。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+        <!--
+            AOP（P5.3 读写分离的 @ReadOnly 切面）。
+            注意：切面必须**先于事务切面**执行，否则连接已绑定主库、再切路由无效。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+        <!--
+            可观测性（P4）：Actuator 端点 + Prometheus 指标导出。
+            放 common 是为了统一指标口径（HTTP 延迟、JVM、连接池、业务计数），
+            避免"有的服务有指标、有的没有"。指标端点在 /actuator/**，不在业务路由 /api/** 下。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <!--
+            Spring Data Redis（P3.2 缓存 + 会话/限流计数）。
+            只在此处引入连接与模板能力；**业务代码不得直接用 RedisTemplate**
+            （架构规则 B11 会拦），统一走 com.wms.platform.common.cache.CacheService 端口。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!--
+            服务发现（P3.4）：**任何会调用别的服务的模块都需要它**。
+            没有它，LoadBalancer 解析不了服务名（表现：Service Instance cannot be null / Request cancelled）。
+            放在 common 是因为"会调用别人"这件事在拆服务阶段会不断扩散，逐个服务补容易漏。
+        -->
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-discovery</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <!--
+            服务间调用（P3.4）：lb:// 服务名解析（所有服务共用，客户端统一放 common）
+        -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
+        <!--
+            对象存储（P5）：面单/回单影像。**业务代码不直接用 MinioClient**，
+            统一走 com.wms.platform.common.storage.FileStoragePort 端口
+            （默认本地磁盘实现，接 MinIO 只改 wms.storage.mode）。
+        -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+        </dependency>
+        <!--
+            XXL-JOB 执行器（P2.2）：**只做触发**（调度、分片、失败重试、执行历史），
+            事务边界与幂等仍由我们自己的任务框架（pf_scheduled_job 租约）保证。
+        -->
+        <dependency>
+            <groupId>com.xuxueli</groupId>
+            <artifactId>xxl-job-core</artifactId>
+        </dependency>
+        <!-- 幂等记录落库（pf_idempotent） -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+        </dependency>
+        <!-- B8：Po/Dto/Ro/Vo 映射统一走 MapStruct（映射器以 MS 结尾、extends MapStructExt） -->
+        <dependency>
+            <groupId>org.mapstruct</groupId>
+            <artifactId>mapstruct</artifactId>
+        </dependency>
+        <!-- B10：集合构造工具（可变集合用 CollUtil，不用不可变工厂） -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

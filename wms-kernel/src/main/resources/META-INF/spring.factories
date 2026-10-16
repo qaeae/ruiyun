@@ -1,0 +1,2 @@
+# 配置中心接入点：必须在容器刷新之前拉取远端配置（详见 NacosConfigLoader 的类注释）
+org.springframework.boot.env.EnvironmentPostProcessor=com.wms.platform.common.nacos.NacosConfigLoader

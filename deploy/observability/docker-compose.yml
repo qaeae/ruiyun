@@ -1,0 +1,69 @@
+# ==========================================================================================
+# 可观测性基础设施（P4）：Prometheus + Grafana + SkyWalking（OAP/UI）
+#
+# 用法（在 wms-platform 目录下）：
+#   docker compose -f deploy/observability/docker-compose.yml up -d
+#   # Prometheus  http://localhost:9090
+#   # Grafana     http://localhost:3001  (admin/admin)
+#   # SkyWalking  http://localhost:8080  ← 与 wms-core 冲突，故 UI 映射到 18082
+#
+# 说明：
+#   - Prometheus 抓取各服务的 /actuator/prometheus（配置见同目录 prometheus.yml）
+#   - Grafana 预置 Prometheus 数据源；WMS 看板需按指标名自建（指标清单见 README §49）
+#   - SkyWalking OAP 用于 APM（链路追踪/拓扑）：Java 服务通过 **agent 挂载**接入，
+#     agent 是无侵入的（-javaagent），因此不改变任何业务代码：
+#       java -javaagent:/path/skywalking-agent/skywalking-agent.jar \
+#            -Dskywalking.agent.service_name=wms-core \
+#            -Dskywalking.collector.backend_service=127.0.0.1:11800 \
+#            -jar wms-core/target/wms-core-*-boot.jar
+#     agent 与 OAP 必须**版本一致**（此处 9.7.0），否则 gRPC 协议不匹配。
+#   - 存储用内置 H2（仅演示/单机）；生产换 Elasticsearch 并调大 JVM。
+# ==========================================================================================
+services:
+  prometheus:
+    image: m.daocloud.io/docker.io/prom/prometheus:v2.53.0
+    container_name: wms-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    restart: unless-stopped
+
+  grafana:
+    image: m.daocloud.io/docker.io/grafana/grafana:11.1.0
+    container_name: wms-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  skywalking-oap:
+    image: apache/skywalking-oap-server:9.7.0
+    container_name: wms-skywalking-oap
+    ports:
+      # 11800 = gRPC（agent 上报）；12800 = HTTP（UI 查询）
+      - "11800:11800"
+      - "12800:12800"
+    environment:
+      SW_STORAGE: h2
+      SW_HEALTH_CHECKER: default
+      TZ: Asia/Shanghai
+    restart: unless-stopped
+
+  skywalking-ui:
+    image: apache/skywalking-ui:9.7.0
+    container_name: wms-skywalking-ui
+    ports:
+      # 18082 而不是 8080：8080 已被 wms-core 占用
+      - "18082:8080"
+    environment:
+      SW_OAP_ADDRESS: http://skywalking-oap:12800
+      TZ: Asia/Shanghai
+    depends_on:
+      - skywalking-oap
+    restart: unless-stopped

@@ -1,0 +1,2 @@
+# Spring Boot 3 的自动配置注册方式（spring.factories 里的 EnableAutoConfiguration 在 Boot 3 已不再生效）
+com.wms.platform.discovery.NacosDiscoveryAutoConfiguration

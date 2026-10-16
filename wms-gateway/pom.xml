@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  wms-gateway：微服务统一入口（Spring Cloud Gateway，WebFlux）。
+
+  职责（与简历「Spring Cloud Gateway 鉴权限流」对齐）：
+    ① 路由：/api/** → 后端服务（P1 先指单体，P1.2 起按服务前缀分流）
+    ② 鉴权前置：验签令牌，非法直接 401（不把无效流量打到业务服务）
+    ③ 注入身份头：X-User-Id / X-Tenant-Id / X-Warehouse-Ids，并**清除客户端伪造的同类头**
+    ④ 限流：Redis 令牌桶（按用户，取不到用户则按 IP）
+    ⑤ TraceId：生成/透传 X-Trace-Id，贯穿所有下游
+
+  依赖纪律：**不能**依赖 wms-common（它带 starter-web，会让网关启动失败），只依赖 wms-kernel。
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.wms.platform</groupId>
+        <artifactId>wms-platform</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>wms-gateway</artifactId>
+    <name>wms-gateway</name>
+    <description>微服务网关：路由、鉴权、限流、TraceId 透传（Spring Cloud Gateway / WebFlux）</description>
+
+    <dependencies>
+        <!-- 共享内核（错误码/统一响应/Nacos/令牌验签）；它不含 Servlet 依赖 -->
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-kernel</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <!-- 服务发现（lb:// 路由与负载均衡用） -->
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-discovery</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <!-- 网关本体（响应式） -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
+        </dependency>
+        <!-- 可观测性（P4）：网关自身指标（路由、限流拒绝、上游延迟） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <!-- 负载均衡：lb:// 路由需要它（ReactiveLoadBalancer） -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
+        <!-- 限流用 Redis 令牌桶（响应式客户端） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <mainClass>com.wms.platform.gateway.GatewayApplication</mainClass>
+                    <!-- 与 wms-core 同样的坑：fat jar 会让类扫描看不到业务类，因此保留普通 jar 为主制品 -->
+                    <classifier>boot</classifier>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <!--
+                              必须显式绑定 repackage：只写 <configuration> 不写 <executions> 时，
+                              构建会"成功"但产物只有 15KB 的普通 jar（没有可执行入口），
+                              启动时报 "Unable to access jarfile ...-boot.jar"。
+                              这个坑第一次踩是在 P1 起网关时。
+                            -->
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
