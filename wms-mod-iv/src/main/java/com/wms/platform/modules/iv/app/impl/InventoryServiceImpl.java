@@ -105,6 +105,11 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     @Override
+    public void unallocate(StockOpCommand command) {
+        runIdempotently("取消分配", command.idemKey(), () -> applier.unallocate(command));
+    }
+
+    @Override
     public StockView querySku(long warehouseId, long merchantId, long skuId) {
         // 1. 查三态账（无账返回全 0：零库存是正常状态，不该报错）
         IvSkuPo po = skuMapper.selectByKey(TenantContext.tenantId(), warehouseId, merchantId, skuId);
@@ -148,6 +153,13 @@ public class InventoryServiceImpl implements InventoryService {
         throw new com.wms.platform.common.api.BizException(
                 com.wms.platform.common.api.ErrorCode.PARAM_ERROR,
                 "查询流水需提供 bizNo 或 (warehouseId + skuId)");
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public BigDecimal reservedRemaining(String bizNo, long skuId) {
+        BigDecimal remaining = movementMapper.sumReservedRemaining(TenantContext.tenantId(), bizNo, skuId);
+        return remaining == null ? BigDecimal.ZERO : remaining;
     }
 
     @Override

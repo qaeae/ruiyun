@@ -121,6 +121,31 @@ public interface IvLocationMapper extends BaseMapper<IvLocationPo> {
              @Param("skuId") long skuId, @Param("qty") BigDecimal qty);
 
     /**
+     * 取消分配：把该库位"已分配待拣"的量归位（取消已派发未拣货的单据用，{@code 01} §2.6）。
+     *
+     * <p>SQL 与 {@link #pick} 相同（都只减 {@code allocated_qty}），但**流水类型不同**
+     * （{@code UNALLOCATE} vs {@code PICK}）——业务含义相反的动作共用一种流水会让复盘无法解释。
+     *
+     * @param tenantId    租户
+     * @param warehouseId 仓库
+     * @param locationId  库位
+     * @param merchantId  商家
+     * @param skuId       商品
+     * @param qty         数量
+     * @return 影响行数（0 = 该库位分配量不足，数据不一致需排查）
+     */
+    @Update("""
+            UPDATE iv_location
+               SET allocated_qty = allocated_qty - #{qty}, version = version + 1
+             WHERE tenant_id = #{tenantId} AND warehouse_id = #{warehouseId}
+               AND location_id = #{locationId} AND merchant_id = #{merchantId} AND sku_id = #{skuId}
+               AND batch_no = '' AND deleted = 0 AND allocated_qty >= #{qty}
+            """)
+    int unallocate(@Param("tenantId") long tenantId, @Param("warehouseId") long warehouseId,
+                   @Param("locationId") long locationId, @Param("merchantId") long merchantId,
+                   @Param("skuId") long skuId, @Param("qty") BigDecimal qty);
+
+    /**
      * 上架到库位：库位实物增加（首次建账）。
      *
      * @param id          雪花 ID

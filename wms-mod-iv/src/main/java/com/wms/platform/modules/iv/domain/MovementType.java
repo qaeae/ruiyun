@@ -28,6 +28,16 @@ public enum MovementType {
     /** 拣货：库位级 `allocated_qty` 减少，SKU 三态不变（{@code 01} §3 状态机第 3 行）。 */
     PICK("拣货", 0, false),
 
+    /**
+     * 取消分配：库位级 `allocated_qty` 归位（取消已派发未拣货的出库单用，{@code 01} §2.6 取消矩阵
+     * "待接单/拣货中 → allocated 归位"）。
+     *
+     * <p>为什么不复用 {@link #PICK}：两者对库位的效果一样（allocated −q），但**业务含义相反**——
+     * 一个是"货被拣走了"，一个是"不拣了、把分配撤回来"。共用会让流水无法解释
+     * （复盘时看到 PICK 却找不到拣货动作），而流水正是盘点差异时唯一的追溯依据。
+     */
+    UNALLOCATE("取消分配", 0, false),
+
     /** 出库：实物与预占同减（不变量 {@code physical = available + reserved} 保持）。 */
     SHIP("出库", -1, true),
 

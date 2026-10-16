@@ -82,6 +82,17 @@ public interface InventoryService {
     void pick(StockOpCommand command);
 
     /**
+     * 取消分配（库位 {@code allocated_qty} 归位，SKU 三态不变）。
+     *
+     * <p>用于"已派发拣货但还没拣货就取消"的场景（{@code 01} §2.6 取消矩阵：待接单/拣货中 →
+     * {@code allocated} 归位）。与 {@link #pick} 的区别只在业务语义与流水类型：
+     * 取消分配绝不会被误认为"货被拣走了"。
+     *
+     * @param command 命令（{@code locationId} 必填）
+     */
+    void unallocate(StockOpCommand command);
+
+    /**
      * 查 SKU 三态（API-IV-01）。
      *
      * @param warehouseId 仓库
@@ -99,6 +110,18 @@ public interface InventoryService {
      * @return 库位明细视图列表
      */
     List<LocationStockView> listLocations(long warehouseId, long skuId);
+
+    /**
+     * 某业务单某 SKU 的剩余预占量（取消出库时"该释放多少"的唯一依据）。
+     *
+     * <p>为什么不让调用方自己记"已释放缺货量"：那是同一事实的第二份记录，迟早与流水不一致；
+     * 而库存流水是不可删除的账，用它算出来的数天然与库存动作一致。
+     *
+     * @param bizNo 业务单号（出库单号）
+     * @param skuId 商品
+     * @return 剩余预占量（无记录返回 0）
+     */
+    java.math.BigDecimal reservedRemaining(String bizNo, long skuId);
 
     /**
      * 查库存流水（API-IV-02）。

@@ -192,6 +192,29 @@ public class StockApplier {
     }
 
     /**
+     * 取消分配（库位 allocated −q，SKU 三态不变）。
+     *
+     * <p>与 {@link #pick} 的 SQL 相同、语义相反：拣货是"货拣走了"，取消分配是"不拣了、把分配撤回来"。
+     * 二者流水类型不同（{@code UNALLOCATE} / {@code PICK}），否则盘点复盘时会看到"凭空出现的拣货"。
+     *
+     * @param cmd 命令（库位必填）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void unallocate(StockOpCommand cmd) {
+        // 1. 库位必填
+        Long locationId = requireLocation(cmd, "取消分配");
+        // 2. 条件更新：该库位分配量足够才撤得回来（不足说明数据不一致，必须显式失败而非静默跳过）
+        int affected = locationMapper.unallocate(tenant(), cmd.warehouseId(), locationId, cmd.merchantId(),
+                cmd.skuId(), cmd.qty());
+        if (affected == 0) {
+            throw new BizException(ErrorCode.STOCK_OCCUPIED,
+                    "该库位分配量不足，无法取消分配 " + cmd.qty() + "（locationId=" + locationId + "）");
+        }
+        // 3. 流水
+        writeMovement(cmd, MovementType.UNALLOCATE, cmd.qty(), locationId);
+    }
+
+    /**
      * 移库（源库位 −q、目标库位 +q，SKU 三态不变）。
      *
      * @param cmd 移库命令
