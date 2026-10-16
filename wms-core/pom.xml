@@ -46,6 +46,17 @@
             <artifactId>wms-mod-logistics</artifactId>
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
+        <!-- W6：出库域与账户域（本轮最小面：费用冻结/释放）；二者均在本进程内，靠模块依赖协作而非 HTTP -->
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-mod-outbound</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-mod-acct</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
         <dependency>
             <groupId>com.wms.platform</groupId>
             <artifactId>wms-common</artifactId>

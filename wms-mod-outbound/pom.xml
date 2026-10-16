@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  outbound 领域模块（W6：M7 出库全流程）。
+
+  它是「交易内核」的一部分，与 iv 同进程协作（库存三态/库位账的动作由 iv 的 app 层提供），
+  因此**不直接读写 iv_* 表**，只调 InventoryService——这样库存不变量与幂等防线不会被绕过。
+
+  本文件同时是架构边界的执法者：想引用未声明的领域，编译直接失败。
+
+  当前依赖方向（无环）：
+    outbound → wms-common
+    outbound → wms-mod-iv         （预占/释放/分配/拣货/出库扣减）
+    outbound → wms-mod-md         （SKU 解析、禁入品类校验、库位可拣校验）
+    outbound → wms-mod-acct       （费用冻结/释放）
+    outbound → wms-mod-logistics  （生成装运单，待取号）
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.wms.platform</groupId>
+        <artifactId>wms-platform</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>wms-mod-outbound</artifactId>
+    <name>wms-mod-outbound</name>
+    <description>出库领域（DO 全流程：建单冻结→派发→拣货→称重→打包→交接→装车出账→取消回滚）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-common</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-mod-iv</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-mod-md</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-mod-acct</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-mod-logistics</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+    </dependencies>
+</project>

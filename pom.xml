@@ -26,11 +26,14 @@
         <!-- P0 拆分：领域模块（依赖方向见各模块 pom 顶部注释，禁止反向依赖） -->
         <module>wms-mod-au</module>
         <module>wms-mod-md</module>
+        <module>wms-mod-acct</module>
         <module>wms-mod-iv</module>
         <module>wms-mod-fns</module>
         <module>wms-mod-ops</module>
         <module>wms-mod-pda</module>
         <module>wms-mod-logistics</module>
+        <!-- W6：出库域（依赖 iv/md/acct/logistics，故排在其后） -->
+        <module>wms-mod-outbound</module>
         <!-- 独立服务（P1.2 从单体拆出） -->
         <module>wms-auth</module>
         <module>wms-masterdata</module>

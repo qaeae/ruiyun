@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  acct 领域模块（本轮为「最小面」实现）。
+
+  为什么现在只做一小块：出库单创建（03 API-OUT-01 / 状态机 #1）的前置条件是
+  「余额足 + 冻结成功」，而 acct 域此前只有包占位——不落地冻结，出库链路的
+  资金防线就是空的（能发货但没冻住钱）。因此本轮只实现 acct 的**冻结 / 释放 / 查可用余额**，
+  且暂不暴露 HTTP：API-ACCT-*（充值、扣减、退款、通道适配、冲正）留给 M3 轮次在域内继续扩。
+
+  本文件同时是架构边界的执法者：想引用未声明的领域，编译直接失败。
+
+  当前依赖方向（无环）：
+    acct → wms-common
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.wms.platform</groupId>
+        <artifactId>wms-platform</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>wms-mod-acct</artifactId>
+    <name>wms-mod-acct</name>
+    <description>账户与资金领域（本轮最小面：费用冻结 / 释放 / 可用余额）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.wms.platform</groupId>
+            <artifactId>wms-common</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+    </dependencies>
+</project>
