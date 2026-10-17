@@ -3334,3 +3334,82 @@ VALUES (3001, 1, /*商家ID*/ 1, 1000.0000, 0, 0, 0, 0, 0);
 
 否则建单返回 `20001 余额不足，已拦截下单` —— 这是**刻意的**：不冻钱不发货。
 
+---
+
+## 57. Docker 部署现状与容器实测（2026-10-17）
+
+### 57.1 现状盘点（实测，不是推测）
+
+启动 Docker Desktop 后 `docker ps -a` 才看得到真实情况：
+
+| 类别 | 内容 | 状态 |
+|------|------|------|
+| 基础设施容器（**已有**） | `wms-mysql-primary-p53`(3307) / `wms-mysql-replica-p53`(3308) / `wms-redis-p1`(6380) / `wms-nacos-p05`(8848) / `wms-rmq-p2`(5673) / `wms-xxl-p2`(18081) / `wms-localstack-p5`(4566) / `wms-prometheus-p4`(9090) | 全部 `Exited (255)`——Docker 重启时被杀 |
+| 应用服务容器 | core / auth / masterdata / fns / gateway | **一个都没有**：仓库里从来没有应用层编排 |
+
+`deploy/` 现有资产：`observability` 与 `storage` 两套**基础设施** compose、4 个服务 Dockerfile、4 份 k8s 清单。
+**缺**：应用层 compose（起服务栈）、`wms-fns` 的 Dockerfile / k8s 清单 / CI 矩阵项。
+
+### 57.2 本轮容器实测（真的构建、真的跑、真的调接口）
+
+```
+构建：deploy/docker/Dockerfile.wms-{core,auth,masterdata,fns,gateway} → 5 个镜像（约 600–740MB/个）
+起栈：compose（/tmp/wms-verify-compose.yml，未入库）→ 5 个容器；网关关 Nacos 走绝对地址直连
+健康：5/5 /actuator/health = 200（db 主从 UP、redis 6.2.14 UP、rabbit 3.13.7 UP）
+业务：收货 100 → 建单 → 派发 → 拣货 → 称重 → 打包 → 交接 → 装车，8 步全部 code=0
+      状态轨迹 7 行；装车接口同键重放仍是「已出库」（幂等生效）
+库证：iv_sku 90/90/0；iv_location 实物 90、allocated 0；
+      冻结单 110.00 = 100×1.1「已冻结」；装运单「已取号」+ 运单号 WB-V-1；
+      流水 5 类：RECEIVE +100 / RESERVE +10 / ALLOCATE +10 / PICK +10 / SHIP −10
+网关：/outbound/**、/master/**、/finance/** 均 401（路由可达 + 鉴权生效，不是 503）；/health 200
+```
+
+> 结论：**应用侧此前确实没有 Docker 部署**，但按现有 Dockerfile 构建出的镜像可以正常起通并服务业务。
+
+### 57.3 容器里跑出来的两个缺陷（已修，见提交）
+
+1. **`GET` 打 POST-only 接口返回 500**（应为 405）：500 会被监控当故障、被客户端当"服务挂了"重试；
+   真实原因只是调用方写错方法。已在 `GlobalExceptionHandler` 补 `HttpRequestMethodNotSupportedException` → 405 + 10001。
+2. **按仓截单被忽略**：`01` §3.9 说截单按仓可配、`md_warehouse.cutoff_time` 列也一直在，但建单只读全局配置
+   → 某仓改到 20:00 完全无效。已加 `MasterDataQueryService.findCutoffTime`，建单优先用仓库值、缺失才回退全局。
+
+### 57.4 本机跑容器的三个坑（照抄即可）
+
+1. **Docker Hub 被拦**：`FROM eclipse-temurin:17-jre-jammy` 拉取时报 `failed to fetch anonymous token ... forcibly closed`。
+   本机既定做法是走镜像加速，先拉再打回原名，**不用改 Dockerfile**（CI 在 GitHub Actions 上能直连）：
+   ```bash
+   docker pull m.daocloud.io/docker.io/library/eclipse-temurin:17-jre-jammy
+   docker tag  m.daocloud.io/docker.io/library/eclipse-temurin:17-jre-jammy eclipse-temurin:17-jre-jammy
+   ```
+2. **宿主机 MySQL 只有 `root@localhost`**：容器从别的 IP 连会被拒。建容器专用账号，且**别指向 `wms_platform`**
+   （清表夹具会删运行数据，见 `53.25`）：
+   ```sql
+   CREATE DATABASE IF NOT EXISTS wms_docker CHARACTER SET utf8mb4;
+   CREATE USER IF NOT EXISTS 'wms_docker'@'%' IDENTIFIED BY '<口令>';
+   GRANT ALL PRIVILEGES ON wms_docker.* TO 'wms_docker'@'%';
+   ```
+3. **curl 内联中文会被按 GBK 发出** → Jackson 解析失败（表现为 10001 参数错误，极易误判成接口 bug）。
+   中文 payload 一律写文件再 `--data-binary @body.json`。
+
+### 57.5 复现与清理
+
+```bash
+mvn -B package -DskipTests                       # 5 个 boot jar
+for s in core auth masterdata fns gateway; do
+  docker build -f deploy/docker/Dockerfile.wms-$s -t wms/wms-$s:1.0.0 .
+done
+docker compose -f /tmp/wms-verify-compose.yml up -d
+# 清理（不动你的基础设施容器）
+docker compose -f /tmp/wms-verify-compose.yml down
+```
+
+### 57.6 仍未收敛（诚实登记）
+
+| 项 | 说明 |
+|----|------|
+| 应用层 compose 未入库 | 目前只在 `/tmp` 用于验证；要不要作为 `deploy/compose/docker-compose.yml` 入库待定（涉及 DB/账号/密钥口径） |
+| `wms-fns` k8s 清单与 CI 矩阵 | Dockerfile 已补，清单与 `ci-ms.yml` 矩阵仍未加 |
+| k8s 清单仍是骨架 | 依赖 `mysql-primary.infra.svc.cluster.local` 等集群内 DNS，未在真实集群验证（与 §51.3 一致） |
+| 容器内未做登录链路 | 登录需要先种 `au_user`（§38.6 的 PBKDF2 口令），本轮用「网关内部凭据 + 身份头」直连业务服务验证 |
+
+
