@@ -1,0 +1,41 @@
+# ==========================================================================================
+# wms-fns 镜像（财务服务：对账/结算/兜底/垫付/日终勾稽/运费试算）。
+#
+# 为什么现在补这个文件：wms-fns 自 P3.4 起是**独立部署的服务（8084）**，网关有 3 条前缀
+# （/api/v1/finance/**、/api/v1/pricing/**、/api/v1/reconcile-bills/**）指向 `lb://wms-fns`；
+# 而 deploy/docker 与 deploy/k8s 里此前只有 core/auth/masterdata/gateway 四个 ——
+# 结果是"构建镜像时根本没有 fns"，部署后财务相关接口必然 503，且很难联想到是清单缺了一项。
+#
+# 构建上下文 = 仓库根目录：
+#   mvn -B package -DskipTests      # 先产出 boot jar
+#   docker build -f deploy/docker/Dockerfile.wms-fns -t wms/wms-fns:1.0.0 .
+#
+# 关键点与其它服务一致：
+#   1. 只拷 `-boot.jar`（主制品是普通 jar，没有 Main-Class，拷错启动即失败）；
+#   2. 非 root 运行（uid 10001）；
+#   3. 时区固定 Asia/Shanghai（结算日期/对账日期与本地时间强相关，UTC 会跨天错乱）；
+#   4. JAVA_TOOL_OPTIONS 用 MaxRAMPercentage，按容器 limit 自适应；
+#   5. HEALTHCHECK 打 Actuator，与 K8s 探针同源。
+# ==========================================================================================
+FROM eclipse-temurin:17-jre-jammy
+
+ARG SERVICE=wms-fns
+ARG PORT=8084
+
+ENV TZ=Asia/Shanghai \
+    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=70 -Duser.timezone=Asia/Shanghai -Dfile.encoding=UTF-8" \
+    SERVER_PORT=${PORT}
+
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
+    && groupadd -g 10001 wms && useradd -u 10001 -g wms -s /sbin/nologin wms
+
+WORKDIR /app
+COPY wms-fns/target/wms-fns-*-boot.jar /app/app.jar
+RUN chown -R wms:wms /app
+USER wms
+
+EXPOSE ${PORT}
+HEALTHCHECK --interval=15s --timeout=3s --start-period=60s --retries=3 \
+    CMD wget -q -O- http://127.0.0.1:${PORT}/actuator/health || exit 1
+
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
