@@ -89,7 +89,8 @@ mvn -pl wms-core -am verify -Dit.skip=false \
   1. 后端侧契约冒烟：`node scripts/contract-smoke.mjs`（配合 `scripts/seed-smoke-users.sql`，25 项，走网关真实登录）；
   2. 前端模型层 × 真后端：`cd ../wms-platform-web && WMS_E2E_BASE=http://127.0.0.1:28088 pnpm test`（12 项，走前端真实
      `OutboundApi` + axios 拦截器 + 幂等键）。
-  仍缺：**真浏览器点击**（环境无 Playwright/Cypress）；前端工程未纳入 git。
+  仍缺：**真浏览器点击**（环境无 Playwright/Cypress）。前端已单独入库（首次提交 `ad53755`），
+  但**尚未配远端**，见 README §60.4。
 
 ### 5.1 前端开工前置包（**唯一入口**）
 
