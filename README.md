@@ -3418,4 +3418,88 @@ docker compose -f /tmp/wms-verify-compose.yml down
 | k8s 清单仍是骨架 | 依赖 `mysql-primary.infra.svc.cluster.local` 等集群内 DNS，未在真实集群验证（与 §51.3 一致） |
 | 容器内未做登录链路 | 登录需要先种 `au_user`（§38.6 的 PBKDF2 口令），本轮用「网关内部凭据 + 身份头」直连业务服务验证 |
 
+---
+
+## 58. 单体环境 SkyWalking APM（Docker 单机，2026-10-17）
+
+> 目标：**先用起来**——单机 OAP + UI + Java Agent 无侵入接入 5 个服务，
+> 能看接口耗时、慢 SQL、跨服务调用链。k8s 形态等后续需要时再迁（见 §58.6）。
+
+### 58.1 组件与端口
+
+| 组件 | 镜像 | 端口 | 说明 |
+|------|------|------|------|
+| OAP | `apache/skywalking-oap-server:9.7.0` | 11800 gRPC / 12800 HTTP | 存储用内置 **H2**（单机临时够用，重启即丢） |
+| UI | `apache/skywalking-ui:9.7.0` | **18082** → 容器 8080 | 不用 8080，避免与 wms-core 冲突 |
+| Java Agent | `apache/skywalking-java-agent:9.7.0-java17` | — | 版本与 OAP **严格一致**，否则 gRPC 协议不匹配 |
+| Prometheus / Grafana | `prom/prometheus:v2.53.0` / `grafana:11.1.0` | 9090 / 3001 | 同一份 compose 里，一起起来了（指标侧，非本次重点） |
+
+启动（只需三个 SkyWalking 组件）：
+
+```bash
+docker compose -f deploy/observability/docker-compose.yml up -d skywalking-agent skywalking-oap skywalking-ui
+# UI: http://localhost:18082     OAP GraphQL: http://localhost:12800/graphql
+```
+
+### 58.2 接入方式：agent 卷 + 4 个环境变量（改代码 = 0 行）
+
+agent 以 tar.gz 分发、OAP/UI 镜像里都不带，而**无法直接挂载镜像内路径**，所以用一个一次性任务把它摊平到具名卷：
+
+```yaml
+# deploy/observability/docker-compose.yml
+skywalking-agent:                      # 一次性：cp -a /skywalking/agent/. /agent/
+  volumes: [ "wms-skywalking-agent:/agent" ]   # 顺带把 optional-plugins 里的网关插件拷进 plugins/
+```
+
+业务容器只需（见 §57 的验证编排）：
+
+```yaml
+    volumes: [ "wms-skywalking-agent:/skywalking/agent:ro" ]
+    environment:
+      JAVA_TOOL_OPTIONS: "... -javaagent:/skywalking/agent/skywalking-agent.jar"   # 保留镜像原有参数再追加
+      SW_AGENT_NAME: wms-core                        # 每个服务不同 → UI 里是 5 个 Service
+      SW_AGENT_COLLECTOR_BACKEND_SERVICES: host.docker.internal:11800
+      SW_LOGGING_DIR: /tmp/skywalking-logs           # 卷是 :ro，写不了 agent/logs（见 §58.4）
+      SW_AGENT_TRACE_SAMPLE_RATE: "10000"            # 验证期全采；上线调回 3‰ 量级
+```
+
+### 58.3 实测证据（真跑出来的，不是"应该能"）
+
+```
+服务注册（OAP listServices，layer=GENERAL）：wms-gateway / wms-core / wms-auth / wms-masterdata / wms-fns（5/5）
+业务 trace：POST:/api/v1/outbound/orders  361ms
+  span 树：Tomcat(POST:/api/v1/outbound/orders)
+           → HikariCP/Connection/getConnection ×2
+           → Mysql/JDBC/PreparedStatement/execute ×N（peer=host.docker.internal:3306）
+           → Mysql/JDBC/Connection/commit
+跨服务关联：网关 segment 与 core segment 共享同一 traceId 前缀（1f8c2343…），链路串起来了
+UI：http://localhost:18082 → 200
+```
+
+### 58.4 三个坑（都踩过，别再踩）
+
+1. **`/healthcheck` 在 9.7.0 里不存在**（返回 404）：拿它做 compose 健康检查，会把一个**已就绪**的 OAP 长期标成
+   `unhealthy`，并让 UI 因 `depends_on` 直接不启动。改用 GraphQL `query{version}` 探活（同时证明 HTTP+GraphQL+存储可用）。
+2. **`optional-plugins` 默认不生效**：Spring Cloud Gateway 的插桩在 `optional-plugins/apm-spring-cloud-gateway-3.x-plugin-*.jar`，
+   不拷进 `plugins/` 就完全没有网关入站 trace。表现很迷惑：**其它 4 个服务都有 trace，唯独网关没有**，容易误判成"网关没接进来"。
+3. **agent 卷 `:ro` 挂载 → agent 写不了自己的日志**：日志里持续刷 `FileNotFoundException: /skywalking/agent/logs/skywalking-api.log`，
+   而且**不影响启动**，只是把 agent 的排障信息全丢了。用 `SW_LOGGING_DIR` 指到可写路径。
+
+### 58.5 容量与存储（当前形态的边界，别拿去压测）
+
+- 存储是 **H2 内存/文件模式**：OAP 重启历史全丢；只能用于功能验证与联调看链路。
+- 采样率设成 `10000`（全采）是**验证期专用**，压测或长跑请调回默认 3‰ 量级，否则 trace 量会把单机打满。
+- 单机 OAP 没做持久化与副本，OAP 挂 = APM 挂，但不影响业务（agent 侧只是丢数据）。
+
+### 58.6 后续升级到 k8s 时的迁移点（等你确认再做）
+
+| 项 | 单体现状 | k8s 形态 |
+|----|---------|---------|
+| agent 供给 | 具名卷 + 只读挂载 | **initContainer 拷到 emptyDir**，或直接把 agent 打进业务镜像（更可控） |
+| 后端地址 | `host.docker.internal:11800` | `skywalking-oap.<ns>.svc.cluster.local:11800` |
+| OAP | 单容器 + H2 | StatefulSet + **BanyanDB/ES**（H2 不具备持久化与水平扩展） |
+| UI | 单容器 | Deployment + Ingress（别用 8080） |
+| 采样/TTL | 全采、默认 TTL | 按 QPS 与存储容量重算采样率、TTL、保留天数 |
+
+
 

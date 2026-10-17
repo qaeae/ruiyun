@@ -42,6 +42,37 @@ services:
       - prometheus
     restart: unless-stopped
 
+  # ------------------------------------------------------------------------------------------
+  # SkyWalking Java Agent（2026-10-17 加）：把官方 agent 镜像里的 /skywalking/agent 摊平到具名卷，
+  # 供各业务服务只读挂载（-javaagent:/skywalking/agent/skywalking-agent.jar）。
+  #
+  # 为什么绕这一步：agent 以 tar.gz 分发，OAP/UI 镜像里都不带，而**无法直接挂载镜像内路径**，
+  # 必须先落成卷或宿主目录。用具名卷的好处是全程自动、跨机器可复现（不用手工下载解压到某路径）。
+  # 版本必须与 OAP 一致（同为 9.7.0），否则 gRPC 协议不匹配，agent 连不上且只在日志里报一行错。
+  #
+  # 关键细节（都是踩出来的）：
+  #   1. `optional-plugins` 默认**不生效**：Spring Cloud Gateway 的插件放在这里，必须拷进 plugins/ 才会 instrumentation，
+  #      否则网关的入站请求完全没有 trace（其它服务有、唯独网关没有，很容易误判成网关没接入）。
+  #   2. 业务容器以 `:ro` 挂这个卷（agent 不应改动），因此 agent 自己写不了 logs/ 目录 ——
+  #      各服务需用 SW_LOGGING_DIR 指到可写路径，否则会持续刷 FileNotFoundException。
+  # ------------------------------------------------------------------------------------------
+  skywalking-agent:
+    image: apache/skywalking-java-agent:9.7.0-java17
+    container_name: wms-skywalking-agent
+    volumes:
+      - wms-skywalking-agent:/agent
+    # 一次性任务：拷完即退出（restart: no，别让它反复重启刷日志）
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        cp -a /skywalking/agent/. /agent/
+        cp -a /agent/optional-plugins/apm-spring-cloud-gateway-3.x-plugin-*.jar /agent/plugins/
+        cp -a /agent/optional-plugins/apm-spring-cloud-gateway-4.x-plugin-*.jar /agent/plugins/
+        echo "[agent] copied to volume wms-skywalking-agent, gateway plugins enabled"
+    restart: "no"
+
   skywalking-oap:
     image: apache/skywalking-oap-server:9.7.0
     container_name: wms-skywalking-oap
@@ -53,17 +84,35 @@ services:
       SW_STORAGE: h2
       SW_HEALTH_CHECKER: default
       TZ: Asia/Shanghai
+    # 健康检查：单体联调最容易卡在"OAP 还没起来就去查"，有它才能被 depends_on 等到。
+    # 为什么不探 /healthcheck：**9.7.0 里这个 HTTP 路径不存在**（返回 404），实测会把一个已就绪的
+    # OAP 长期标成 unhealthy，并让 UI 因 depends_on 卡死不启动——又一个"假不健康"。
+    # 改用 GraphQL 的 version 查询：一次调用同时证明 HTTP 服务、GraphQL 与存储都可用。
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'curl -sf -X POST -H "Content-Type: application/json" -d ''{"query":"query{version}"}'' http://127.0.0.1:12800/graphql | grep -q version'
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
     restart: unless-stopped
 
   skywalking-ui:
     image: apache/skywalking-ui:9.7.0
     container_name: wms-skywalking-ui
     ports:
-      # 18082 而不是 8080：8080 已被 wms-core 占用
+      # 18082 而不是 8080：8080 已被 wms-core 占用（k8s 里同样别用 8080）
       - "18082:8080"
     environment:
       SW_OAP_ADDRESS: http://skywalking-oap:12800
       TZ: Asia/Shanghai
     depends_on:
-      - skywalking-oap
+      skywalking-oap:
+        condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  # 具名卷：其它 compose 文件用 external 引用（见 README §58）
+  wms-skywalking-agent:
+    name: wms-skywalking-agent
