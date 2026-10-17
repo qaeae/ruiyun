@@ -88,6 +88,21 @@
 | POST | `/api/v1/master/warehouses/{warehouseId}/status` | `PermissionCodes.MASTER_STATUS_CHANGE` |
 | GET | `/api/v1/master/zones` | `PermissionCodes.MASTER_QUERY` |
 | POST | `/api/v1/master/zones` | `PermissionCodes.MASTER_WAREHOUSE_CREATE` |
+| GET | `/api/v1/outbound/orders` | `PermissionCodes.OUTBOUND_ORDER_QUERY` |
+| POST | `/api/v1/outbound/orders` | `PermissionCodes.OUTBOUND_ORDER_CREATE` |
+| GET | `/api/v1/outbound/orders/{doNo}` | `PermissionCodes.OUTBOUND_ORDER_QUERY` |
+| POST | `/api/v1/outbound/orders/{doNo}/cancel` | `PermissionCodes.OUTBOUND_ORDER_CANCEL` |
+| POST | `/api/v1/outbound/orders/{doNo}/dispatch` | `PermissionCodes.OUTBOUND_ORDER_DISPATCH` |
+| POST | `/api/v1/outbound/orders/{doNo}/handover` | `PermissionCodes.OUTBOUND_ORDER_HANDOVER` |
+| POST | `/api/v1/outbound/orders/{doNo}/hold` | `PermissionCodes.OUTBOUND_ORDER_HOLD` |
+| POST | `/api/v1/outbound/orders/{doNo}/load` | `PermissionCodes.OUTBOUND_ORDER_LOAD` |
+| POST | `/api/v1/outbound/orders/{doNo}/measure` | `PermissionCodes.OUTBOUND_ORDER_MEASURE` |
+| POST | `/api/v1/outbound/orders/{doNo}/pack` | `PermissionCodes.OUTBOUND_ORDER_PACK` |
+| POST | `/api/v1/outbound/orders/{doNo}/partial-ship` | `PermissionCodes.OUTBOUND_ORDER_PARTIAL` |
+| POST | `/api/v1/outbound/orders/{doNo}/pick-complete` | `PermissionCodes.OUTBOUND_ORDER_PICK` |
+| POST | `/api/v1/outbound/orders/{doNo}/resume-picking` | `PermissionCodes.OUTBOUND_ORDER_PICK` |
+| POST | `/api/v1/outbound/orders/{doNo}/shortage` | `PermissionCodes.OUTBOUND_ORDER_PICK` |
+| GET | `/api/v1/outbound/orders/{doNo}/status-logs` | `PermissionCodes.OUTBOUND_ORDER_QUERY` |
 | GET | `/api/v1/pda/conflicts` | `PublicApi` |
 | POST | `/api/v1/pda/sync/batch` | `PublicApi` |
 | POST | `/api/v1/pricing/estimate` | `PermissionCodes.PRICING_ESTIMATE` |
@@ -99,4 +114,4 @@
 | POST | `/api/v1/stocktakes/{stocktakeNo}/reject` | `PermissionCodes.STOCK_ADJUST` |
 | POST | `/api/v1/stocktakes/{stocktakeNo}/submit` | `PermissionCodes.STOCK_ADJUST` |
 
-共 92 个接口。
+共 107 个接口。

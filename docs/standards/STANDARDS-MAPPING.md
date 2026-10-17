@@ -302,3 +302,20 @@
 | `modules.pda.infrastructure.mapper.SyncBizStatusMapper` | **仅剩的跨域缝隙**：只读查询 `out_order` / `in_asn` 状态（W1 时 `outbound`/`inbound` 尚无 app 层） | **W7 出库/入库核心落地后删除**，改调各域服务。同一批的另 3 个（`SyncStockMapper` / `SyncMovementMapper` / `SyncMovementPo`）已于 2026-10-14 清理，见 §七 第 14 行 |
 | `modules.pda.app.impl.PdaSyncServiceImpl#resolveShipLocation` | 装车出库的库位靠**推导**（`03` 的 LOAD 报文不带库位，而 `01` §4 不变量 2 要求出库必须落到具体库位） | **W7 改为取出库单的分配记录**；当前多条候选时转人工冲突（**不猜**，猜错会让另一个库位凭空多出实物） |
 | 单测中的 `List.of` / `Set.of` | 测试代码使用不可变工厂 | 按 §五 适配条**保留**：测试不参与运行期契约，且 JUnit/AssertJ 生态默认用法 |
+
+## 九、W6 出库域落地时新增的结论（2026-10-17）
+
+> 按 AGENTS.md §3 的纪律：**发现映射表未覆盖的冲突时，先在这里补结论，再写代码**。
+> 以下每条都是"设计文档没写死、但实现必须选一边"的地方。
+
+| 编号 | 议题 | 结论 | 理由 |
+|------|------|------|------|
+| B17 | 状态机的物理位置 | 放在 `modules.<域>.domain.statemachine`，**允许它依赖本域 Po**（只此一个包豁免） | ArchUnit 规则「状态字段只能由状态机修改」把豁免包硬编码为该包；反过来把状态机挪去 app/infrastructure 会让规则直接红。这是既有规则的本意，不是新开的口子 |
+| B18 | 跨域读数据 | 跨域只走对方 `app` 接口；**本域需要但对方没提供的读能力，优先给对方加一个语义方法**（本例：`iv.reservedRemaining`），而不是在本域直连对方表 | `PdaSyncServiceImpl#resolveShipLocation` 的跨域缝隙就是这么长出来的（见 §八）；加方法比加缝隙便宜 |
+| B19 | 状态迁移落库方式 | 一律用 **条件更新**（`WHERE status = 迁移前`），不使用 `updateById` + 乐观锁 | 本仓库**未注册** `MybatisPlusInterceptor`（`@Version` 会静默失效），`updateById` 在并发下会丢失更新（"点了取消但单子还是出库了"） |
+| B20 | 分页实现 | 手写 `LIMIT/OFFSET`（Mapper `default` 方法内），不用 `selectPage` | 同上：分页拦截器未注册，`selectPage` 会返回全表且**不报错** |
+| B21 | 幂等键的组织 | `pf_idempotent` 键 = `动作前缀 + ':' + Idempotency-Key 头值`；状态流水键 = `<bizId>+<EVENT>` | 同一个头值若被跨动作复用（先取消后装车），不加前缀会让第二次动作被判成重复而**静默不执行** |
+| B22 | 建单类接口的"试算" | 预估价由调用方传入，**不在业务事务内远程调价目表** | `53.12` 已证伪事务内远程调用；试算与建单拆成两步契约（先调 `/pricing/estimate`，再带价建单） |
+| B23 | 权限码登记 | 新增权限码**必须同时加入** `PermissionCodes.ALL` | 否则 `of()` 会拒绝授予（症状：配了权限仍 403，且配置界面显示成功）。本轮补齐了此前遗漏的 3 个（`PRICING_ESTIMATE`、`LOGISTICS_PROOF_*`） |
+| B24 | 生成物的确定性 | 生成式文档（`docs/frontend/api-contract.md`）必须**按稳定键排序**后输出 | 顺序随扫描顺序变化会让 CI diff 红一大片，真实漂移反而被淹没 |
+
