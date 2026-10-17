@@ -1,0 +1,15 @@
+# pnpm 12 的「允许执行构建脚本的依赖」白名单。
+#
+# 键名与形态都容易踩坑（本次实测）：
+#   - 键名是 `allowBuilds`（旧名 `onlyBuiltDependencies` 写了不报错但**不生效**，
+#     表现为 install 始终以 ERR_PNPM_IGNORED_BUILDS 结束）；
+#   - 形态是**映射**（包名 → 布尔），写成数组会直接报
+#     `unexpected event: expected mapping start`。
+#
+# 为什么只白名单这两个：
+#   esbuild   —— 需要安装平台二进制（不加它 vite/vitest 无法启动）；
+#   vue-demi  —— 需要 postinstall 做 Vue 版本适配。
+# 其余依赖一律不执行构建脚本：**默认拒绝是安全的默认值**，别图省事全放开。
+allowBuilds:
+  esbuild: true
+  vue-demi: true
