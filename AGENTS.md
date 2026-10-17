@@ -70,7 +70,7 @@ mvn -pl wms-core -am verify -Dit.skip=false \
 
 ## 5. 前端（**工程不在本仓库**）
 
-- 前端工程（`Vue 3 + TS + Vite + Element Plus`）位于工作区 `../wms-platform-web`，**本仓库只保留契约与前置包**；
+- 前端工程位于**本仓库 `web/`**（Vue 3 + TS + Vite + Element Plus），与后端同仓管理；
 - 动前端代码前**必须先读** `.agents/skills/admin-system-knowledge/` 全套（R1–R12、models-standard、page-standard），
   并按下表完成项目化改写后才允许写页面代码：
 
@@ -87,10 +87,9 @@ mvn -pl wms-core -am verify -Dit.skip=false \
   `views/outbound/OutOrderListView.vue`、`views/outbound/OutOrderDetailView.vue`，已注册路由与菜单。
   联调两层，都可重复执行：
   1. 后端侧契约冒烟：`node scripts/contract-smoke.mjs`（配合 `scripts/seed-smoke-users.sql`，25 项，走网关真实登录）；
-  2. 前端模型层 × 真后端：`cd ../wms-platform-web && WMS_E2E_BASE=http://127.0.0.1:28088 pnpm test`（12 项，走前端真实
+  2. 前端模型层 × 真后端：`cd web && WMS_E2E_BASE=http://127.0.0.1:28088 pnpm test`（12 项，走前端真实
      `OutboundApi` + axios 拦截器 + 幂等键）。
-  仍缺：**真浏览器点击**（环境无 Playwright/Cypress）。前端已单独入库（首次提交 `ad53755`），
-  但**尚未配远端**，见 README §60.4。
+  仍缺：**真浏览器点击**（环境无 Playwright/Cypress）。前端已并入本仓库 `web/`（subtree，保留首次提交 `ad53755`），见 README §61。
 
 ### 5.1 前端开工前置包（**唯一入口**）
 

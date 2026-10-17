@@ -7,7 +7,7 @@
  * 这个脚本把"路径是否真实存在、HTTP 动词是否匹配"变成一次可重复执行的机械校验。
  *
  * 用法：
- *   pnpm check:api            # 默认比对 ../wms-platform/docs/frontend/api-contract.md
+ *   pnpm check:api            # 默认比对 ../docs/frontend/api-contract.md（本仓库契约清单）
  *   node scripts/check-api-paths.mjs <contract.md 路径>
  *
  * 退出码：0 = 一致；1 = 存在对不上的调用。
@@ -16,7 +16,8 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 /** 后端契约清单路径（可被参数覆盖）。 */
-const contractPath = process.argv[2] ?? '../wms-platform/docs/frontend/api-contract.md'
+// 前端已并入本仓库 web/ 子目录，契约清单在同仓库的 docs/ 下（不再是 ../wms-platform/docs）
+const contractPath = process.argv[2] ?? '../docs/frontend/api-contract.md'
 const ROOT = process.cwd()
 const MODELS = join(ROOT, 'src', 'models')
 

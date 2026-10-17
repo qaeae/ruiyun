@@ -3650,16 +3650,62 @@ GET  /src/models/outbound.ts     200（新增模块 dev 转译正常）
 - **vite 默认绑 `[::1]`**：`curl http://127.0.0.1:5173` 会连不上，要用 `localhost`；
   且 5173 被占用时会静默顺延到 5174（`Port 5173 is in use, trying another one...`），
   自动化脚本里别写死端口。
-- **前端已单独入库**（2026-10-17）：`wms-platform-web` 已 `git init -b main` 并完成首次提交
-  `ad53755`（48 个文件 / 10506 行），`.gitignore` 覆盖 `node_modules/`、`dist/`、`.vite/`、`coverage/`。
-  **尚未配远端**（GitHub 账号下还没有对应空仓，且当时网络不可达）——等你给仓库地址后
-  `git remote add origin <url> && git push -u origin main` 即可。
-  前端独立成库而不是塞进本仓库：它的构建工具链、依赖与发布节奏都与后端不同，
-  且 `scripts/check-api-paths.mjs` 默认按 `../wms-platform/docs/frontend/api-contract.md` 相对取契约，
-  挪位置要同时改路径约定。
+- **前端已并入本仓库 `web/`**（2026-10-17，见 §61）：用 `git subtree` 合并，保留了前端首次提交 `ad53755`；
+  `node_modules/`、`dist/` 由 `web/.gitignore` 忽略。所有前端命令从 `cd ../wms-platform-web` 改为 `cd web`。
 - **没有做真浏览器点击**：本环境没有浏览器自动化（Playwright/Cypress 都没装）。
   视觉细节（响应式、骨架、Element Plus 主题）与"点下去的手感"仍需你在浏览器里过一遍；
   但数据链路与状态机分支已被上面 12 项覆盖。
+
+---
+
+## 61. 前端并入本仓库 `web/`（布局变更，2026-10-17）
+
+### 61.1 结论先行
+
+前端不再是与后端平级的独立目录 `../wms-platform-web`，而是**本仓库的 `web/` 子目录**，
+前后端同仓管理（一次改动 = 一个仓库 + 一份契约，跨仓库漂移这类问题从根上消失）。
+
+### 61.2 怎么并的（历史没丢）
+
+```bash
+git remote add web-local ../wms-platform-web
+git fetch web-local
+git subtree add --prefix=web web-local/main      # 生成 5c34f1d，保留前端首次提交 ad53755
+git remote remove web-local
+```
+
+用 `subtree` 而不是"拷一份再提交"，是因为前者把前端的提交历史也带进来（`git log web/` 能看到 `ad53755`），
+后者只留一个巨大快照，以后回溯"这个文件什么时候改的"就断了。
+
+### 61.3 因布局变更改掉的东西
+
+| 位置 | 改动 |
+|------|------|
+| `web/scripts/check-api-paths.mjs` | 契约清单默认路径 `../wms-platform/docs/frontend/api-contract.md` → `../docs/frontend/api-contract.md` |
+| 所有前端命令 | `cd ../wms-platform-web` → `cd web`（依赖重装在 `web/` 下，`pnpm install --offline` 即可） |
+| `AGENTS.md §5` | 工程位置、联调命令路径同步 |
+| README §1–§55 | **历史记录保持原样**（当时确实在平级目录），按当时布局读即可；现行口径以本节为准 |
+
+### 61.4 在新位置重跑了一遍（不是"搬完就算"）
+
+```
+pnpm exec vue-tsc --noEmit   ✅
+pnpm check:standard          ✅ 0 违规
+pnpm check:api               ✅ 60 处调用 / 107 条契约全命中（新相对路径生效）
+pnpm build                   ✅ 产物含 OutOrderListView 9.88kB / OutOrderDetailView 11.94kB
+pnpm test                    ✅ 8 passed / 4 skipped（e2e 默认跳过）
+WMS_E2E_BASE=… pnpm test     ✅ 12/12（真后端全链路）
+```
+
+### 61.5 两件要你处理的事
+
+1. **旧目录还在**：`C:\Users\AD\Desktop\wms-platform-web` 与其 `.git`、`node_modules` 都未动。
+   **它已经不是权威副本**，别再在那里改代码（否则两份会分叉）。确认无误后直接删除即可；
+   要我先改名成 `wms-platform-web.OLD-20261017` 也行，说一声。
+2. **CI 还没有前端 job**：后端 CI 只跑 `mvn`。前端入仓后建议加一步
+   `pnpm install --frozen-lockfile && pnpm exec vue-tsc --noEmit && pnpm check:standard && pnpm check:api`，
+   但需要在 workflow 里加 `pnpm/action-setup`，我没在这轮擅自加（加错了会把 CI 弄红）。
+
 
 
 
