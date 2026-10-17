@@ -504,10 +504,13 @@ public class OutboundOrderServiceImpl implements OutboundOrderService {
             resolved.add(new ItemWithSku(lineNo++, sku, item));
         }
         // 4. 建单：主单 + 明细（状态由状态机给出"待接单"，杜绝绕过状态机得到合法状态）
+        //    当日/次日判定：**优先用仓库自己的截单时间**（01 §3.9 按仓可配），仓库未配才回退全局配置。
+        //    只用全局配置会让"某仓把截单改到 20:00"在系统里完全无效——单子照样被分进次日批次。
         long doId = idGenerator.nextId();
         String doNo = OutOrderNoRule.doNo(doId);
+        boolean sameDay = isSameDayNow(masterDataQueryService.findCutoffTime(ro.warehouseId()));
         OutOrderPo po = OutOrderPo.newOrder(doId, tenantId, doNo, ro.warehouseId(), ro.merchantId(), sourceType,
-                ro.sourceOrderNo(), ro.carrierCode(), isSameDayNow(), ro.expectedWeight(), ro.expectedVolume(),
+                ro.sourceOrderNo(), ro.carrierCode(), sameDay, ro.expectedWeight(), ro.expectedVolume(),
                 ro.remark(), operator());
         OutOrderStateMachine.apply(po, OutOrderEvent.CREATE);
         fillReceiverPii(po, ro);
@@ -536,7 +539,7 @@ public class OutboundOrderServiceImpl implements OutboundOrderService {
         // 8. 状态流水（建单无迁移前状态）
         writeStatusLog(po, null, OutOrderStatus.PENDING.code(), OutOrderEvent.CREATE,
                 "建单：冻结 " + freeze.freezeNo() + "（" + freeze.frozenAmount() + "），装运单 "
-                        + shipment.shpNo() + (isSameDayNow() ? "，当日单" : "，次日单"));
+                        + shipment.shpNo() + (sameDay ? "，当日单" : "，次日单"));
         log.info("出库建单成功 doNo={} 商家={} 明细行={} 冻结={} 装运单={}", doNo, ro.merchantId(),
                 resolved.size(), freeze.freezeNo(), shipment.shpNo());
         return detail(doNo);
@@ -808,10 +811,12 @@ public class OutboundOrderServiceImpl implements OutboundOrderService {
     /**
      * 是否当日单（按截单时间判定；不影响能否下单，只影响批次）。
      *
+     * @param warehouseCutoff 仓库截单时刻（可空；空则回退全局配置）
      * @return 当日单返回 {@code true}
      */
-    private boolean isSameDayNow() {
-        return CutoffRule.isSameDay(LocalDateTime.now(), parseCutoff());
+    private boolean isSameDayNow(LocalTime warehouseCutoff) {
+        LocalTime cutoff = warehouseCutoff == null ? parseCutoff() : warehouseCutoff;
+        return CutoffRule.isSameDay(LocalDateTime.now(), cutoff);
     }
 
     /**

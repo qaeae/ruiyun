@@ -125,7 +125,7 @@ class OutboundFlowIT {
     void resetFixtures() {
         for (String table : new String[]{"pf_biz_status_log", "out_order_item", "out_order", "lg_shipment_proof",
                 "lg_shipment", "ac_ledger", "ac_fee_freeze", "ac_merchant_account", "iv_movement", "iv_location",
-                "iv_sku", "md_location", "md_zone", "md_sku", "pf_idempotent"}) {
+                "iv_sku", "md_location", "md_zone", "md_sku", "md_warehouse", "pf_idempotent"}) {
             jdbc.update("DELETE FROM " + table + " WHERE tenant_id = " + TENANT);
         }
         // 1. 主数据：库区 / 库位 / SKU（重量 2kg，便于称重偏差用例）
@@ -192,6 +192,22 @@ class OutboundFlowIT {
         assertThat(trackExists(doNo, "LOAD")).as("装车轨迹必须带事件名").isTrue();
 
         print("正向全链路", "DO=" + doNo + " 终态已出库，实物 90/可用 90/预占 0，轨迹 7 行");
+    }
+
+    @Test
+    @DisplayName("截单按仓可配：md_warehouse.cutoff_time 生效（不用全局配置）")
+    void perWarehouseCutoffShouldDriveSameDayFlag() {
+        // 1. 仓库截单设成 00:00:01（此时刻之后一律算次日单），默认 18:00 的全局配置会被覆盖
+        jdbc.update("INSERT INTO md_warehouse (id, tenant_id, warehouse_code, name, cutoff_time, status) "
+                + "VALUES (?, 1, 'WH-IT-1', '用例仓', '00:00:01', '启用')", WAREHOUSE);
+        OutOrderDetailVo order = createOrder(new BigDecimal("1"), new BigDecimal("10.0000"), "SO-CUTOFF-1");
+        assertThat(order.isSameDay()).as("过了仓库截单时间，应为次日单").isFalse();
+
+        // 2. 再把截单改成 23:59:59 → 同一时刻应为当日单（证明读的是仓库配置，不是常量）
+        jdbc.update("UPDATE md_warehouse SET cutoff_time = '23:59:59' WHERE tenant_id = 1 AND id = " + WAREHOUSE);
+        OutOrderDetailVo sameDayOrder = createOrder(new BigDecimal("1"), new BigDecimal("10.0000"), "SO-CUTOFF-2");
+        assertThat(sameDayOrder.isSameDay()).as("未过仓库截单时间，应为当日单").isTrue();
+        print("按仓截单", "仓库截单 00:00:01 → 次日单；改成 23:59:59 → 当日单");
     }
 
     @Test

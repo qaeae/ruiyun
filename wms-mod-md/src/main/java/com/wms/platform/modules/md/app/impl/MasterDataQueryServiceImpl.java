@@ -9,7 +9,9 @@ import com.wms.platform.common.context.TenantContext;
 import com.wms.platform.modules.md.app.MasterDataQueryService;
 import com.wms.platform.modules.md.infrastructure.mapper.LocationMapper;
 import com.wms.platform.modules.md.infrastructure.mapper.SkuMapper;
+import com.wms.platform.modules.md.infrastructure.mapper.WarehouseMapper;
 import com.wms.platform.modules.md.infrastructure.po.LocationPo;
+import com.wms.platform.modules.md.infrastructure.po.MdWarehousePo;
 import com.wms.platform.modules.md.infrastructure.po.SkuPo;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,6 +30,9 @@ public class MasterDataQueryServiceImpl implements MasterDataQueryService {
 
     /** 库位 Mapper。 */
     private final LocationMapper locationMapper;
+
+    /** 仓库 Mapper（截单时间按仓可配，见 {@code 01} §3.9）。 */
+    private final WarehouseMapper warehouseMapper;
 
     /**
      * 缓存（P3.2）：只缓存**正向解析结果**（编码 → ID / SKU 明细）。
@@ -109,6 +114,15 @@ public class MasterDataQueryServiceImpl implements MasterDataQueryService {
         if (!po.isPickable()) {
             throw new BizException(ErrorCode.LOCATION_NOT_PICKABLE, "库位不可拣：" + locationCode);
         }
+    }
+
+    @Override
+    public java.time.LocalTime findCutoffTime(long warehouseId) {
+        // 1. 按租户 + 仓库 ID 精确查（**不缓存**：17:5x 现场改截单时间是常事，
+        //    缓存 5 分钟就可能把当日单误判成次日单）
+        MdWarehousePo po = warehouseMapper.selectByIdSafe(TenantContext.tenantId(), warehouseId);
+        // 2. 仓库不存在或未配截单 → null，由调用方回退全局配置（不在这里替它决定）
+        return po == null || po.getCutoffTime() == null ? null : po.getCutoffTime();
     }
 
     @Override

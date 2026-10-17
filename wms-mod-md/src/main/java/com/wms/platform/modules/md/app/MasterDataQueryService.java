@@ -43,6 +43,18 @@ public interface MasterDataQueryService {
     void assertLocationPickable(long warehouseId, String locationCode);
 
     /**
+     * 查仓库截单时间（{@code 01} §3.9：截单时间**按仓可配**，落在 {@code md_warehouse.cutoff_time}）。
+     *
+     * <p>为什么由主数据域提供、而不是让出库域自己去查这张表：截单时间属于仓库主数据，
+     * 出库只是使用者；出库直连 {@code md_warehouse} 就成了既有的"跨域缝隙"反模式
+     * （见 STANDARDS-MAPPING §八 的 {@code PdaSyncServiceImpl}）。
+     *
+     * @param warehouseId 仓库 ID
+     * @return 截单时刻；仓库不存在或未配置返回 {@code null}（调用方回退到全局配置）
+     */
+    java.time.LocalTime findCutoffTime(long warehouseId);
+
+    /**
      * 商品简要信息（计费与禁入校验用）。
      *
      * @param merchantId 商家 ID
