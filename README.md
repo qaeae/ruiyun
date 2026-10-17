@@ -3366,12 +3366,18 @@ VALUES (3001, 1, /*商家ID*/ 1, 1000.0000, 0, 0, 0, 0, 0);
 
 > 结论：**应用侧此前确实没有 Docker 部署**，但按现有 Dockerfile 构建出的镜像可以正常起通并服务业务。
 
-### 57.3 容器里跑出来的两个缺陷（已修，见提交）
+### 57.3 容器里跑出来的三个缺陷（已修，见提交）
 
 1. **`GET` 打 POST-only 接口返回 500**（应为 405）：500 会被监控当故障、被客户端当"服务挂了"重试；
    真实原因只是调用方写错方法。已在 `GlobalExceptionHandler` 补 `HttpRequestMethodNotSupportedException` → 405 + 10001。
 2. **按仓截单被忽略**：`01` §3.9 说截单按仓可配、`md_warehouse.cutoff_time` 列也一直在，但建单只读全局配置
    → 某仓改到 20:00 完全无效。已加 `MasterDataQueryService.findCutoffTime`，建单优先用仓库值、缺失才回退全局。
+3. **5 个 Dockerfile 的健康检查永远是 unhealthy**（最隐蔽的一个）：`HEALTHCHECK ... ${PORT}` 与 `EXPOSE ${PORT}`
+   里的 `${PORT}` 是**运行期**由 `/bin/sh` 展开的，而 `PORT` 只是构建期 `ARG`、不进运行期环境
+   → 实际请求的是 `http://127.0.0.1:/actuator/health`（端口为空），`wget` 退出码 4，容器永远 `(unhealthy)`；
+   更糟的是 compose 的 `depends_on: condition: service_healthy` 会**直接卡死**，k8s 虽用自己的 probe 不受影响，
+   但 `docker ps` 永远显示不健康，排障时极易被误导成"应用启动失败"。
+   修法：`ENV` 里显式 `PORT=${PORT}`（5 个 Dockerfile 全部修，改后 17 秒内全部 `healthy`）。
 
 ### 57.4 本机跑容器的三个坑（照抄即可）
 

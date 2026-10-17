@@ -16,7 +16,12 @@ FROM eclipse-temurin:17-jre-jammy
 ARG SERVICE=wms-core
 ARG PORT=8080
 
+# PORT 必须显式进环境变量：EXPOSE 与 HEALTHCHECK 里的 ${PORT} 由**运行期** /bin/sh 展开，
+# 而 ARG 不进运行期环境 → 少了这一行，健康检查会访问 http://127.0.0.1:/actuator/health（端口为空），
+# 容器永远 (unhealthy)，compose 的 depends_on: service_healthy 会直接卡死
+# （2026-10-17 容器联调实测：ExitCode=1、Output 为空，正是此因）。
 ENV TZ=Asia/Shanghai \
+    PORT=${PORT} \
     JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=70 -Duser.timezone=Asia/Shanghai -Dfile.encoding=UTF-8" \
     SERVER_PORT=${PORT}
 
