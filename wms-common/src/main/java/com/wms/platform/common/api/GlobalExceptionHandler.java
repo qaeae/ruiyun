@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -89,6 +90,24 @@ public class GlobalExceptionHandler {
         String message = "请求报文无法解析: " + (reason == null ? "格式错误" : reason);
         log.warn("请求报文无法解析: {}", reason);
         return ResponseEntity.badRequest().body(ApiResponse.fail(ErrorCode.PARAM_ERROR, message));
+    }
+
+    /**
+     * 请求方法不支持（例如用 GET 调一个 POST 接口）。
+     *
+     * <p><b>必须映射成 405 而不是兜底的 500</b>（2026-10-17 容器联调时发现：`GET /api/v1/outbound/orders`
+     * 打成 500）：500 会被监控当成"服务故障"报警、被客户端当成"服务端挂了"重试，
+     * 而真实原因只是调用方写错了方法——这类误报多了，真故障就没人看了。
+     *
+     * @param ex 方法不支持异常
+     * @return 405 + 统一响应体
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotAllowed(HttpRequestMethodNotSupportedException ex) {
+        String message = "接口不支持 " + ex.getMethod() + " 方法，请检查请求方法";
+        log.warn("{}(uri 需要 {} )", message, ex.getSupportedHttpMethods());
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(ApiResponse.fail(ErrorCode.PARAM_ERROR, message));
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
