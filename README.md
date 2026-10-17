@@ -3583,6 +3583,80 @@ load → 已出库                                ✅  取消待接单 → 已�
 > 结论：**契约层已对齐并有可重复的冒烟脚本**；出库域的"真联调"要等前端补出库页面，
 > 届时按 §59.2 的 6 条约定 + §59.5 的 5 项做 UI 层复验即可，不必重新摸索约定。
 
+---
+
+## 60. 前端出库页面（2026-10-17，已补并实测）
+
+§59 的结论是"要等前端补出库页面"。这一节就是补完之后的结果。
+
+### 60.1 新增了什么
+
+工程：`C:\Users\AD\Desktop\wms-platform-web`（**不在本仓库**，也未纳入 git —— 见 §60.4）
+
+| 文件 | 职责 |
+|------|------|
+| `src/models/outbound.ts` | Vo/Qo + 15 个接口 + **状态机口径**（`allowedActions`/`statusTagType`/文案映射） |
+| `src/views/outbound/OutOrderListView.vue` | 列表（筛选 + 分页）+ 建单弹窗（明细可增删） |
+| `src/views/outbound/OutOrderDetailView.vue` | 详情 / 作业操作台（11 个动作按状态渲染 + 轨迹时间线 + 收件人掩码） |
+| `src/router/index.ts` | 新增 `outbound/orders`、`outbound/orders/:doNo` 两条路由（`perm: outbound:order:query`） |
+| `src/models/menu.ts` | 新增「出库作业 → 出库单」菜单项 |
+| `src/models/__tests__/outbound.e2e.spec.ts` | **前端模型层 × 真后端**的联调用例（默认跳过，`WMS_E2E_BASE` 开启） |
+
+### 60.2 三条设计取舍（都不是随手定的）
+
+1. **按钮显隐 = 状态机 × 权限**：`allowedActions(status)` 给"这状态下能做哪些"，再用 `auth.can(权限码)` 过滤。
+   模板里**没有**一处 `v-if="status === '待接单'"` 的散写——散写的结果是加一个状态要改五六个地方，
+   而且必然漏掉一处，表现为"按钮点了报 409"。
+2. **不可逆动作必须在详情页做，且二次确认**：装车（库存出账）、取消（回滚库存与冻结）、拦截（作废面单）
+   的确认框里写清"会发生什么"。列表页只给查询与建单，不给"一步到装车"的捷径。
+3. **错误文案直接用后端的**：后端 409 返回的是可直接展示的中文（如"不可取消；如需退回请走退货入库流程"），
+   前端 `showError(err)` 原样弹；不另编一套，否则两套文案迟早不一致。
+
+### 60.3 验证（跑过的，不是"应该能"）
+
+```
+pnpm exec vue-tsc --noEmit     ✅ 类型检查通过（strict + noUnusedLocals）
+pnpm build                     ✅ 产物含 OutOrderListView 9.88kB / OutOrderDetailView 11.94kB / outbound 5.83kB
+pnpm check:standard            ✅ 0 违规（首轮 5 处 R7/R8 违规已按规则整改，见下）
+pnpm check:api                 ✅ 60 处调用 / 107 条契约，路径与动词全部命中
+WMS_E2E_BASE=http://127.0.0.1:28088 pnpm test   ✅ 12/12
+```
+
+`check:standard` 首轮抓到的 5 处违规，都是"能跑但不合规范"的典型：
+- **R8**：`statusTagType(): 'success' | 'warning' | …` 内联联合 → 改为命名类型 `TagType`；
+- **R7** ×4：模板里 `{{ row.isSameDay ? '当日单' : '次日单' }}` 这类内联中文三元 →
+  改为 `models` 里的 `sameDayLabel()`/`handoverLabel()`/`remarkPlaceholder`。
+
+`outbound.e2e.spec.ts` 走的**是前端真实模型层**（`OutboundApi` + Qo 的 `toParams()` + axios 拦截器 +
+`Idempotency-Key` + `code===0` 判定），不是另写一套脚本，因此它验的正是页面按钮会走的代码：
+
+```
+状态机与展示口径（纯前端）                                 ✅
+建单 → 派发 → 拣货 → 称重 → 打包 → 交接 → 装车（8 步）      ✅  终态无动作、收件人只有掩码、轨迹首条 CREATE
+分页：PageResult{total:number,list[]} 可直接绑定            ✅  筛选 status=已出库 生效、id 为字符串
+取消：待接单成功（回 cancelStage）/ 已出库 409+20002        ✅  错误对象带 code，可直接展示 message
+```
+
+浏览器侧再验一层 dev 链路（`vite dev` → 代理 → 网关 → 后端）：
+
+```
+GET  /outbound/orders            200（history 模式回 index.html）
+POST /api/v1/auth/login          200 + code=0（代理链路通）
+GET  /src/models/outbound.ts     200（新增模块 dev 转译正常）
+```
+
+### 60.4 两点必须知道的坑 / 未覆盖
+
+- **vite 默认绑 `[::1]`**：`curl http://127.0.0.1:5173` 会连不上，要用 `localhost`；
+  且 5173 被占用时会静默顺延到 5174（`Port 5173 is in use, trying another one...`），
+  自动化脚本里别写死端口。
+- **前端工程未纳入 git**（`git status` 报 not a repository）。这次改动只落在工作区，
+  没有版本回退点——建议单独 `git init` 或并进某个仓库，由你决定。
+- **没有做真浏览器点击**：本环境没有浏览器自动化（Playwright/Cypress 都没装）。
+  视觉细节（响应式、骨架、Element Plus 主题）与"点下去的手感"仍需你在浏览器里过一遍；
+  但数据链路与状态机分支已被上面 12 项覆盖。
+
+
 
 
 

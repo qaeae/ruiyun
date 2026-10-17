@@ -82,11 +82,14 @@ mvn -pl wms-core -am verify -Dit.skip=false \
 | 自检脚本 | `pnpm check:standard` / `audit:standard` | 脚本已入库待接；pnpm 已装（12.11.2），待接入 |
 
 - 前端规范自检脚本已随技能入库：`.agents/skills/admin-system-knowledge/scripts/{check-standard,audit-standard}.mjs`。
-- **前端当前进度（2026-10-17 实测）**：15 个页面 / 13 条业务路由（login、inventory×2、approvals×2、finance×5、
-  master×2、ops、error×2）。**出库域（API-OUT-01…13）没有任何页面/模型/API 封装** ——
-  后端出库接口目前只能做**契约级联调**：`node scripts/contract-smoke.mjs`（配合
-  `scripts/seed-smoke-users.sql` 种账号，走网关真实登录，25 项断言，见 README §59）。
-  真 UI 联调要等出库页面落地，届时按 README §59.2 的 6 条约定与 §59.5 的 5 项未覆盖面复验。
+- **前端当前进度（2026-10-17 实测）**：17 个页面 / 15 条业务路由。
+  **出库页面已补齐**（README §60）：`models/outbound.ts`（Vo/Qo + 15 接口 + 状态机口径）、
+  `views/outbound/OutOrderListView.vue`、`views/outbound/OutOrderDetailView.vue`，已注册路由与菜单。
+  联调两层，都可重复执行：
+  1. 后端侧契约冒烟：`node scripts/contract-smoke.mjs`（配合 `scripts/seed-smoke-users.sql`，25 项，走网关真实登录）；
+  2. 前端模型层 × 真后端：`cd ../wms-platform-web && WMS_E2E_BASE=http://127.0.0.1:28088 pnpm test`（12 项，走前端真实
+     `OutboundApi` + axios 拦截器 + 幂等键）。
+  仍缺：**真浏览器点击**（环境无 Playwright/Cypress）；前端工程未纳入 git。
 
 ### 5.1 前端开工前置包（**唯一入口**）
 
