@@ -79,9 +79,14 @@ mvn -pl wms-core -am verify -Dit.skip=false \
 | 响应成功判定 | `code === 200` | `code === 0`（03 §1.2） |
 | 请求头 | `Api-Code` | 本项目用 `Idempotency-Key`（写操作必传）+ `X-Trace-Id` |
 | 接口文档 | 根目录 `接口文档.md` | `项目详细设计/03-接口定义.md` + 本仓库 `docs/frontend/api-contract.md`（自动生成） |
-| 自检脚本 | `pnpm check:standard` / `audit:standard` | 脚本已入库待接；本机**未安装 pnpm**，需先安装 |
+| 自检脚本 | `pnpm check:standard` / `audit:standard` | 脚本已入库待接；pnpm 已装（12.11.2），待接入 |
 
 - 前端规范自检脚本已随技能入库：`.agents/skills/admin-system-knowledge/scripts/{check-standard,audit-standard}.mjs`。
+- **前端当前进度（2026-10-17 实测）**：15 个页面 / 13 条业务路由（login、inventory×2、approvals×2、finance×5、
+  master×2、ops、error×2）。**出库域（API-OUT-01…13）没有任何页面/模型/API 封装** ——
+  后端出库接口目前只能做**契约级联调**：`node scripts/contract-smoke.mjs`（配合
+  `scripts/seed-smoke-users.sql` 种账号，走网关真实登录，25 项断言，见 README §59）。
+  真 UI 联调要等出库页面落地，届时按 README §59.2 的 6 条约定与 §59.5 的 5 项未覆盖面复验。
 
 ### 5.1 前端开工前置包（**唯一入口**）
 

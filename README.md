@@ -3501,5 +3501,88 @@ UI：http://localhost:18082 → 200
 | UI | 单容器 | Deployment + Ingress（别用 8080） |
 | 采样/TTL | 全采、默认 TTL | 按 QPS 与存储容量重算采样率、TTL、保留天数 |
 
+---
+
+## 59. 前后端契约联调（2026-10-17，25/25 通过）
+
+### 59.1 先说实话：出库域**没有做过 UI 联调**
+
+前端工程 `wms-platform-web`（不在本仓库）当前 15 个页面 / 13 条业务路由：
+login、inventory/stock、inventory/adjust、approvals/pending、approvals/mine、finance×5、
+master/data、master/devices、ops/jobs、error×2。
+
+**没有任何出库页面、模型或 API 封装**（全仓 grep `outbound/出库/发货` 只命中 `models/inventory.ts` 一句注释）。
+所以 API-OUT-01…13 这 15 个接口**物理上没有页面可点**，谈不上 UI 联调。
+
+但"前后端打架"绝大多数不是发生在 UI 里，而是在**调用约定**上（成功码、幂等键、ID 精度、分页结构、错误提示）。
+于是把前端 `src/utils/request.ts` 的约定**原样复刻**成脚本逐条验证 —— 这就是本节做的"契约级联调"。
+
+### 59.2 对齐的约定（来自前端源码，不是猜的）
+
+| 约定 | 前端实现 | 验证方式 |
+|------|---------|---------|
+| 成功判定 | `request.ts`：拦截器看 `body.code === 0`，**不是** HTTP 200 | 所有用例都断言 `code===0` 才算通过 |
+| 幂等键 | 写方法自动带 `Idempotency-Key`，**同动作重试复用同一键**（`utils/idem.ts`） | 同键同体重放 → 同一单号；同键异体 → 409 |
+| 分页 | `PageResult<T>{ total: number; list: T[] }` | 断言 `total` 是 number、`list` 是数组 |
+| 雪花 ID | `type SnowflakeId = string` | 断言接口返回的 `id` 是字符串 |
+| 错误提示 | 读 `body.message` 弹给用户 | 断言 409/403/404 都带可读 message |
+| 认证 | `Authorization: Bearer <token>`；401 跳登录、403 提示要权限 | 双账号实测 |
+
+### 59.3 怎么跑的（3 步）
+
+```bash
+# 1) 种两个联调账号（超管 + 只有 outbound:order:query 的作业员）
+#    Windows 上必须带 --default-character-set=utf8mb4，否则中文姓名写库报 ERROR 1366
+mysql -h127.0.0.1 -uroot -p --default-character-set=utf8mb4 wms_docker < scripts/seed-smoke-users.sql
+
+# 2) 后端已在 Docker 里跑（网关 28088），执行冒烟
+node scripts/contract-smoke.mjs --base http://127.0.0.1:28088
+
+# 3) 退出码即结论：0=全通过，1=有失败（失败明细会逐条打印）
+```
+
+脚本零依赖（只用 Node 内置 `fetch`），刻意**走网关 + 真实登录令牌**，而不是直连业务服务：
+只有这样才能同时验证网关透传、令牌验签、`Idempotency-Key` 拦截、权限判定这几层。
+
+### 59.4 结果：25 项全通过
+
+```
+登录（超管）code===0 且有 token            ✅  登录（作业员）code===0                      ✅
+分页 total 是 number / list 是数组          ✅  分页行 id 是字符串（SnowflakeId=string）      ✅
+分页行 createdAt 可解析                     ✅  建单 code===0 且返回 doNo                    ✅
+幂等重放：同键同体 → 同一 doNo               ✅  幂等冲突：同键异体 → 409 + 10002             ✅
+漏带 Idempotency-Key → 400 + 10001          ✅  详情：明细数组 + 状态字段                     ✅
+收件人只回掩码（无明文手机号）               ✅  状态轨迹首条 CREATE                          ✅
+作业员有 query 权限 → 200                    ✅  作业员无 create 权限 → 403 + 40300           ✅
+未登录 → 401 + 40300                        ✅  GET 打 POST-only → 405（不是 500）           ✅
+不存在单号 → 10001 + 可读 message            ✅  dispatch → 拣货中                            ✅
+pick-complete → 已复核                       ✅  measure → 已复核                            ✅
+pack → 已打包                                ✅  handover → 待装车                           ✅
+load → 已出库                                ✅  取消待接单 → 已取消 + cancelStage            ✅
+取消已出库 → 409 + 20002                    ✅
+```
+
+几条值得单独说的：
+- **取消已出库被正确拒绝**，且 message 直接可读：
+  「出库单已装车出库（库存已出账），不可取消；如需退回请走退货入库流程（01 §2.1 不可逆点）」——
+  前端可以原样弹给用户，不需要再编文案。
+- **`403` 与 `401` 分得清**：作业员缺权限是 403+40300（提示找管理员），未带令牌是 401+40300（跳登录）。
+  这是前端 `request.ts` 里两个不同分支的前提。
+- **漏带幂等键被立刻拦下**（400），而不是"偶发重复下单"——写接口的幂等是强制的。
+
+### 59.5 这次**没有**覆盖的（只有真页面能验）
+
+| 未覆盖 | 为什么重要 |
+|--------|-----------|
+| 表单校验、必填/长度提示 | 后端只兜底 400，体验全靠前端 |
+| `actionKey` 怎么拼（决定幂等键复用粒度） | 拼错会导致"改了值再提交被判成同键异体 409" |
+| 状态筛选用**中文枚举**（`待接单`/`已出库`） | 后端 `status` 落库就是中文；下拉框必须用同一套取值，否则永远查不到 |
+| 空态/loading/骨架屏、按钮防连点 | 装车这类不可逆动作，防连点只能靠前端 |
+| 列表与详情的字段级映射（`actualWeight`/`waybillNo`…） | 类型对不上时 TS 编译能过、运行时是哑值 |
+
+> 结论：**契约层已对齐并有可重复的冒烟脚本**；出库域的"真联调"要等前端补出库页面，
+> 届时按 §59.2 的 6 条约定 + §59.5 的 5 项做 UI 层复验即可，不必重新摸索约定。
+
+
 
 
