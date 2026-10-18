@@ -3706,6 +3706,73 @@ WMS_E2E_BASE=… pnpm test     ✅ 12/12（真后端全链路）
    `pnpm install --frozen-lockfile && pnpm exec vue-tsc --noEmit && pnpm check:standard && pnpm check:api`，
    但需要在 workflow 里加 `pnpm/action-setup`，我没在这轮擅自加（加错了会把 CI 弄红）。
 
+---
+
+## 62. 演示数据（造单脚本，2026-10-18）
+
+页面能点之后，最大的阻碍变成"**没有合适的数据可点**"：列表空、状态单一、缺 SKU、缺库位。
+本节给两个脚本，一条命令铺满所有状态。
+
+### 62.1 造了什么
+
+| 维度 | 内容 |
+|------|------|
+| 出库单 | **22 张**，覆盖全部 9 个状态；另有 2 张部分发货的余量单 |
+| 分布 | 待接单 4（2 张直接建 + 2 张余量单）、拣货中 2、缺货待处理 2、已复核 2、已打包 2、待装车 2、已出库 4（2 张直接装车 + 2 张部分发货原单）、已取消 2、已拦截 2 |
+| 主数据 | 2 个商家、3 个 SKU（件装/箱装/另一商家商品）、2 个库位（`V-01-01-01` / `V-01-01-02`） |
+| 明细 | 一半单行、一半**双行**（用于验证派发/拣货的逐行输入） |
+| 库位 | 派发轮流落在两个库位（验证库位账与"可拣量不足"的拦截） |
+| 账号 | `it_admin`（超管）/ `it_worker`（只有 query 权限，用来看按钮被权限过滤的效果），口令均 `ItPassw0rd!` |
+
+### 62.2 为什么订单走接口、只有主数据走 SQL
+
+订单不只是一行 `out_order`，它还牵着库存预占、库位分配、运费冻结、装运单、库存流水、状态轨迹。
+**直接 INSERT 造出来的单点开就是自相矛盾的**（状态是待装车、但库存没扣、面单没绑），
+测试时会误判成 bug。所以订单全部通过真实接口跑出来，副作用天然自洽。
+
+主数据（商家/商品/库位/账户/账号）是"配置"，用 SQL 更快且可重复执行。
+
+### 62.3 用法
+
+```bash
+# 1) 主数据 + 账号（可重复执行）
+mysql -h127.0.0.1 -uroot -p --default-character-set=utf8mb4 wms_docker < scripts/seed-demo-master.sql
+mysql -h127.0.0.1 -uroot -p --default-character-set=utf8mb4 wms_docker < scripts/seed-smoke-users.sql
+
+# 2) 造单（默认每状态 2 张；--per-status 可调）
+node scripts/seed-demo-outbound.mjs --base http://127.0.0.1:28088
+
+# 想从零重来（wms_docker 是验证库，可随时丢）
+mysql -h127.0.0.1 -uroot -p -e "DROP DATABASE wms_docker; CREATE DATABASE wms_docker CHARACTER SET utf8mb4"
+docker restart verify-wms-core        # 重启后 Flyway 重建 52 张表
+# 再执行上面的 1) 2)
+```
+
+### 62.4 实测
+
+```
+造单：20 个场景全部 ✓（每状态 2 张），余量单 2 张，合计 22 张
+库存不变量（4 项）：allPassed=true，violation=0
+  · SKU 三态自洽（实物 = 可用 + 预留）
+  · SKU 三态非负
+  · 库位合计 = SKU 实物
+  · 库位非负
+按状态筛选（9 个中文枚举逐个验）：全部生效，计数与造单一致
+按商家筛选：merchantId=2 → 11 张（正好一半）
+```
+
+### 62.5 写脚本时踩的两个坑（都不是产品缺陷，但会浪费半天）
+
+1. **中文不能进 HTTP 头**：上游单号被拼进 `Idempotency-Key`，直接带中文会抛
+   `Cannot convert argument to a ByteString`。做法：状态名走 ASCII slug（`待接单` → `PENDING`），
+   中文只留在 body 的 `remark` 里。
+2. **收货的幂等键必须带库位**：第一版用 `RECV-<run>-<sku>-<merchant>`，
+   同一 SKU 向第二个库位补货时命中了**同一个幂等键**，被 `iv_movement.uk_movement_idem`
+   当成重放**静默跳过**（返回 200，但库存没加）→ 后续派到那个库位的单在拣货时全报
+   `50002 该库位可拣量不足`。这提醒：**幂等键的粒度必须覆盖"同一动作的不同目标"**，
+   否则调用方会以为成功了。
+
+
 
 
 
