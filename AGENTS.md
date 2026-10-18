@@ -31,6 +31,19 @@ wms-archtest    ArchUnit 边界与规范守护（CI 阻断）
 两个技能库是**外部引入的规范**（源自 `singleProject` / `singleProjectForce`），已原样入库，**不得就地修改**；
 与本项目的差异一律通过 [docs/standards/STANDARDS-MAPPING.md](docs/standards/STANDARDS-MAPPING.md) 的映射表表达。
 
+### 2.1 项目文档入口（新人先读，顺序别反）
+
+| 文档 | 内容 |
+|------|------|
+| [docs/guide/README.md](docs/guide/README.md) | **导航**：五步上手、按角色最短路径、文档地图 |
+| [docs/guide/PRODUCT.md](docs/guide/PRODUCT.md) | 产品说明书：三类业务、角色权限、出库生命周期与取消矩阵、领域实现状态、核心业务规则、术语表 |
+| [docs/guide/ARCHITECTURE.md](docs/guide/ARCHITECTURE.md) | 项目结构：18 模块、四层分包、跨域调用规则、5 服务与网关路由、52 表数据模型、本地运行、代码地图 |
+| [docs/guide/API.md](docs/guide/API.md) | 接口说明：统一契约、幂等规则、401/403 区分、错误码分段、出库域逐接口详解与状态机 |
+
+> 分工：**guide 描述现状**（随代码改，改接口/模块/表时同步更新）；**README 是历史记录**（只追加不回头改）；
+> `docs/frontend/api-contract.md` **自动生成**，永远不要手改。
+
+
 ## 3. 规范优先级（冲突时按此顺序，不得越级）
 
 ```
